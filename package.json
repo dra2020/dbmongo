@@ -1,0 +1,44 @@
+{
+  "name": "@terrencecrowley/mongodb",
+  "version": "1.0.1",
+  "description": "AWS Mongo-based implementation of database abstraction.",
+  "main": "dist/mongodb.js",
+  "types": "./dist/all.d.ts",
+  "scripts": {
+    "test": "echo \"No test defined.\"",
+    "build": "webpack",
+    "webpack": "node_modules/.bin/webpack"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/terrencecrowley/mongodb.git"
+  },
+  "keywords": [
+    "Typescript"
+  ],
+  "author": "Terry Crowley",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/terrencecrowley/mongodb/issues"
+  },
+  "homepage": "https://github.com/terrencecrowley/mongodb#readme",
+  "devDependencies": {
+    "@types/mongodb": "^3.1.19",
+    "@types/node": "11.13.7",
+    "source-map-loader": "^0.2.4",
+    "ts-loader": "^5.4.3",
+    "tsify": "^4.0.1",
+    "typescript": "^3.4.5",
+    "webpack": "^4.30.0",
+    "webpack-cli": "^3.3.1"
+  },
+  "dependencies": {
+    "@terrencecrowley/context": "^1.0.2",
+    "@terrencecrowley/dbabstract": "^1.0.1",
+    "@terrencecrowley/fsm": "^1.0.1",
+    "@terrencecrowley/log": "^1.0.1",
+    "@terrencecrowley/storage": "^1.0.1",
+    "@terrencecrowley/util": "^1.0.14",
+    "mongodb": "^3.1.13"
+  }
+}
