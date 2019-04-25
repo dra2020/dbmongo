@@ -5,10 +5,10 @@ var libConfig = {
     target: 'node',
     mode: 'development',
     output: {
-        library: 'mongodb',
+        library: 'dbmongo',
         libraryTarget: 'umd',
         path: __dirname + '/dist',
-        filename: 'mongodb.js'
+        filename: 'dbmongo.js'
     },
 
     // Enable source maps

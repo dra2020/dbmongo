@@ -4,9 +4,9 @@
 	else if(typeof define === 'function' && define.amd)
 		define([], factory);
 	else if(typeof exports === 'object')
-		exports["mongodb"] = factory();
+		exports["dbmongo"] = factory();
 	else
-		root["mongodb"] = factory();
+		root["dbmongo"] = factory();
 })(global, function() {
 return /******/ (function(modules) { // webpackBootstrap
 /******/ 	// The module cache
@@ -109,14 +109,14 @@ function __export(m) {
     for (var p in m) if (!exports.hasOwnProperty(p)) exports[p] = m[p];
 }
 Object.defineProperty(exports, "__esModule", { value: true });
-__export(__webpack_require__(/*! ./mongodb */ "./lib/mongodb.ts"));
+__export(__webpack_require__(/*! ./dbmongo */ "./lib/dbmongo.ts"));
 
 
 /***/ }),
 
-/***/ "./lib/mongodb.ts":
+/***/ "./lib/dbmongo.ts":
 /*!************************!*\
-  !*** ./lib/mongodb.ts ***!
+  !*** ./lib/dbmongo.ts ***!
   \************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
@@ -52419,4 +52419,4 @@ module.exports = require("zlib");
 
 /******/ });
 });
-//# sourceMappingURL=mongodb.js.map
+//# sourceMappingURL=dbmongo.js.map

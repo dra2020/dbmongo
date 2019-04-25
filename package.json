@@ -1,8 +1,8 @@
 {
-  "name": "@terrencecrowley/mongodb",
-  "version": "1.0.1",
+  "name": "@terrencecrowley/dbmongo",
+  "version": "1.0.2",
   "description": "AWS Mongo-based implementation of database abstraction.",
-  "main": "dist/mongodb.js",
+  "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",
   "scripts": {
     "test": "echo \"No test defined.\"",
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/terrencecrowley/mongodb.git"
+    "url": "git+https://github.com/terrencecrowley/dbmongo.git"
   },
   "keywords": [
     "Typescript"
@@ -19,9 +19,9 @@
   "author": "Terry Crowley",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/terrencecrowley/mongodb/issues"
+    "url": "https://github.com/terrencecrowley/dbmongo/issues"
   },
-  "homepage": "https://github.com/terrencecrowley/mongodb#readme",
+  "homepage": "https://github.com/terrencecrowley/dbmongo#readme",
   "devDependencies": {
     "@types/mongodb": "^3.1.19",
     "@types/node": "11.13.7",

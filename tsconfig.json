@@ -1,7 +1,7 @@
 {
 	"files": [
 		"lib/all.ts",
-		"lib/mongodb.ts"
+		"lib/dbmongo.ts"
 	],
 
   "include": [

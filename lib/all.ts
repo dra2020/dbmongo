@@ -1,1 +1,1 @@
-export * from './mongodb';
+export * from './dbmongo';
