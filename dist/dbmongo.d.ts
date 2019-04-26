@@ -6,7 +6,7 @@ import * as DB from '@terrencecrowley/dbabstract';
 export declare class MongoClient extends DB.DBClient {
     mdbclient: MDB.MongoClient;
     serializerUpdate: FSM.FsmSerializer;
-    constructor(storageManager: Storage.StorageManager);
+    constructor(storageManager?: Storage.StorageManager);
     createCollection(name: string, options: any): DB.DBCollection;
     createUpdate(col: MongoCollection, query: any, values: any): DB.DBUpdate;
     createDelete(col: MongoCollection, query: any): DB.DBDelete;

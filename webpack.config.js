@@ -15,8 +15,15 @@ var libConfig = {
     devtool: "source-map",
 
 	externals: {
+    "mongodb": "commonjs mongodb",
+
+    "@terrencecrowley/context": "commonjs @terrencecrowley/context",
+    "@terrencecrowley/util": "commonjs @terrencecrowley/util",
+    "@terrencecrowley/fsm": "commonjs @terrencecrowley/fsm",
+    "@terrencecrowley/log": "commonjs @terrencecrowley/log",
+    "@terrencecrowley/dbabstract": "commonjs @terrencecrowley/dbabstract",
+    "@terrencecrowley/storage": "commonjs @terrencecrowley/storage"
 	},
-		
 
     module: {
 		rules: [

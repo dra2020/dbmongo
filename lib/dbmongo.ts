@@ -59,7 +59,7 @@ export class MongoClient extends DB.DBClient
   mdbclient: MDB.MongoClient;
   serializerUpdate: FSM.FsmSerializer;
 
-  constructor(storageManager: Storage.StorageManager)
+  constructor(storageManager: Storage.StorageManager = null)
     {
       super('MongoClient', storageManager);
       this.mdbclient = null;
