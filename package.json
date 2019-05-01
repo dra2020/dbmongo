@@ -1,6 +1,6 @@
 {
   "name": "@terrencecrowley/dbmongo",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "AWS Mongo-based implementation of database abstraction.",
   "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",
@@ -33,12 +33,12 @@
     "webpack-cli": "^3.3.1"
   },
   "dependencies": {
-    "@terrencecrowley/context": "^1.0.2",
-    "@terrencecrowley/dbabstract": "^1.0.1",
-    "@terrencecrowley/fsm": "^1.0.1",
-    "@terrencecrowley/log": "^1.0.1",
-    "@terrencecrowley/storage": "^1.0.1",
-    "@terrencecrowley/util": "^1.0.14",
+    "@terrencecrowley/context": "^1.0.4",
+    "@terrencecrowley/dbabstract": "^1.0.3",
+    "@terrencecrowley/fsm": "^1.0.3",
+    "@terrencecrowley/log": "^1.0.4",
+    "@terrencecrowley/storage": "^1.0.8",
+    "@terrencecrowley/util": "^1.0.15",
     "mongodb": "^3.1.13"
   }
 }
