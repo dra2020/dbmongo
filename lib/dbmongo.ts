@@ -7,25 +7,27 @@ import * as MDB from 'mongodb';
 // Shared libraries
 import * as Util from '@terrencecrowley/util';
 import * as Context from '@terrencecrowley/context';
-import * as Log from '@terrencecrowley/log';
+import * as LogAbstract from '@terrencecrowley/logabstract';
 import * as Storage from '@terrencecrowley/storage';
 import * as FSM from '@terrencecrowley/fsm';
 import * as DB from '@terrencecrowley/dbabstract';
 
-Context.setDefaults(
-  {
-    aws_mongodb_uri: '',
-    aws_mongodb_username: '',
-    aws_mongodb_password: '',
-    mongo_error_frequency: 0,
-  });
+export interface DBMongoEnvironment
+{
+  context: Context.IContext;
+  log: LogAbstract.ILog;
+  fsmManager: FSM.FsmManager;
+  storageManager: Storage.StorageManager;
+}
 
-const Production = Context.xflag('production');
-const InstanceUrl = Context.xstring('aws_mongodb_uri') + (Production ? '/prod' : '/dev');
-const UserName = Context.xstring('aws_mongodb_username');
-const Password = Context.xstring('aws_mongodb_password');
+const DBMongoContextDefaults: Context.ContextValues =
+{
+  aws_mongodb_uri: '',
+  aws_mongodb_username: '',
+  aws_mongodb_password: '',
+  mongo_error_frequency: 0,
+}
 
-const mongoErrorFrequency: number = Context.xnumber('mongo_error_frequency');
 
 function readPem(): string[]
 {
@@ -59,96 +61,106 @@ export class MongoClient extends DB.DBClient
   mdbclient: MDB.MongoClient;
   serializerUpdate: FSM.FsmSerializer;
 
-  constructor(storageManager: Storage.StorageManager = null)
-    {
-      super('MongoClient', storageManager);
-      this.mdbclient = null;
-      this.serializerUpdate = new FSM.FsmSerializer();
-    }
+  constructor(env: DBMongoEnvironment)
+  {
+    super(env);
+    env.context.setDefaults(DBMongoContextDefaults);
+    this.mdbclient = null;
+    this.serializerUpdate = new FSM.FsmSerializer(env);
+  }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
+
+  get Production(): boolean { return this.env.context.xflag('production');
+  get InstanceUrl(): string { return this.env.context.xstring('aws_mongodb_uri')
+                                + (this.Production ? '/prod' : '/dev'); }
+  get UserName(): string { return this.env.context.xstring('aws_mongodb_username'); }
+  get Password(): string { return this.env.context.xstring('aws_mongodb_password'); }
+  get mongoErrorFrequency(): number { return this.env.context.xnumber('mongo_error_frequency'); }
 
   createCollection(name: string, options: any): DB.DBCollection
-    {  
-      return new MongoCollection('MongoCollection', this, name, options);
-    }
+  {  
+    return new MongoCollection(this.env, this, name, options);
+  }
 
   createUpdate(col: MongoCollection, query: any, values: any): DB.DBUpdate
-    {
-      let update = new MongoUpdate('MongoUpdate', col, query, values);
-      if (query && query.id)
-        this.serializerUpdate.serialize(query.id, update);
-      return update;
-    }
+  {
+    let update = new MongoUpdate(this.env, col, query, values);
+    if (query && query.id)
+      this.serializerUpdate.serialize(query.id, update);
+    return update;
+  }
 
   createDelete(col: MongoCollection, query: any): DB.DBDelete
-    {
-      return new MongoDelete('MongoDelete', col, query);
-    }
+  {
+    return new MongoDelete(this.env, col, query);
+  }
 
   createFind(col: MongoCollection, filter: any): DB.DBFind
-    {
-      return new MongoFind('MongoFind', col, filter);
-    }
+  {
+    return new MongoFind(this.env, col, filter);
+  }
 
   createQuery(col: MongoCollection, filter: any): DB.DBQuery
-    {
-      return new MongoQuery('MongoQuery', col, filter);
-    }
+  {
+    return new MongoQuery(this.env, col, filter);
+  }
 
   createIndex(col: MongoCollection, uid: string): DB.DBIndex
-    {
-      return new MongoIndex('MongoIndex', col, uid);
-    }
+  {
+    return new MongoIndex(this.env, col, uid);
+  }
 
   createClose(): DB.DBClose
-    {
-      return new MongoClose('MongoClose', this);
-    }
+  {
+    return new MongoClose(this.env, this);
+  }
 
   forceError(): boolean
   {
-    if (!Production && (Math.random() < mongoErrorFrequency))
+    if (!this.Production && (Math.random() < this.mongoErrorFrequency))
       return true;
     return false;
   }
 
   tick(): void
+  {
+    if (this.ready && this.state == FSM.FSM_STARTING)
     {
-      if (this.ready && this.state == FSM.FSM_STARTING)
-      {
-        this.setState(FSM.FSM_PENDING);
+      this.setState(FSM.FSM_PENDING);
 
-        let sslCA = readPem();
-        let mdbOptions = { auth: { user: UserName, password: Password }, ssl: true, sslCA: sslCA, useNewUrlParser: true };
-        let localClient = new MDB.MongoClient(InstanceUrl, mdbOptions);
-        Log.event({ event: 'mongodb: connecting to database', detail:  InstanceUrl });
+      let sslCA = readPem();
+      let mdbOptions = { auth: { user: this.UserName, password: this.Password }, ssl: true, sslCA: sslCA, useNewUrlParser: true };
+      let localClient = new MDB.MongoClient(this.InstanceUrl, mdbOptions);
+      this.env.log.event({ event: 'mongodb: connecting to database', detail:  InstanceUrl });
 
-        localClient.connect((err: MDB.MongoError, client: MDB.MongoClient) => {
-            if (this.done)
-              return;
-            else if (err)
-            {
-              this.setState(FSM.FSM_ERROR);
-              Log.error({ event: 'client connection failed', detail: JSON.stringify(err) });
-              Log.error('database unavailable, exiting');
-              Log.dump();
-              process.exit(1);
-            }
-            else
-            {
-              this.mdbclient = client;
-              this.setState(FSM.FSM_DONE);
-              Log.event(`mongodb: client connection started`);
-            }
-          });
-      }
-      if (this.state == DB.FSM_NEEDRELEASE)
-      {
-        this.setState(FSM.FSM_RELEASED);
-        this.close();
-        this.mdbclient = null;
-        Log.event(`mongodb: client connection closed`);
-      }
+      localClient.connect((err: MDB.MongoError, client: MDB.MongoClient) => {
+          if (this.done)
+            return;
+          else if (err)
+          {
+            this.setState(FSM.FSM_ERROR);
+            this.env.log.error({ event: 'client connection failed', detail: JSON.stringify(err) });
+            this.env.log.error('database unavailable, exiting');
+            this.env.log.dump();
+            process.exit(1);
+          }
+          else
+          {
+            this.mdbclient = client;
+            this.setState(FSM.FSM_DONE);
+            this.env.log.event(`mongodb: client connection started`);
+          }
+        });
     }
+    if (this.state == DB.FSM_NEEDRELEASE)
+    {
+      this.setState(FSM.FSM_RELEASED);
+      this.close();
+      this.mdbclient = null;
+      this.env.log.event(`mongodb: client connection closed`);
+    }
+  }
 }
 
 export class MongoCollection extends DB.DBCollection
@@ -180,7 +192,7 @@ export class MongoCollection extends DB.DBCollection
         else if (this.forceError() && this.forceError() && this.forceError()) // Don't do this too often
         {
           this.setState(FSM.FSM_ERROR);
-          Log.error('mongodb: createCollection: forcing error');
+          this.env.log.error('mongodb: createCollection: forcing error');
         }
         else if (this.state == FSM.FSM_STARTING)
         {
@@ -197,24 +209,24 @@ export class MongoCollection extends DB.DBCollection
                     else if (err)
                     {
                       this.setState(FSM.FSM_ERROR);
-                      Log.error({ event: 'mongodb: createCollection', detail: `${this.name}: ${err.errmsg}` });
+                      this.env.log.error({ event: 'mongodb: createCollection', detail: `${this.name}: ${err.errmsg}` });
                     }
                     else
                     {
-                      Log.event(`mongodb: createCollection: ${this.name}: succeeded`);
+                      this.env.log.event(`mongodb: createCollection: ${this.name}: succeeded`);
                       this.mdbclient().db().collection(this.name, { strict: true }, (err: MDB.MongoError, col: any) => {
                           if (this.done)
                             return;
                           else if (err)
                           {
                             this.setState(FSM.FSM_ERROR);
-                            Log.error(`mongodb: collection: ${this.name}: unexpected failed after successful create: ${err.errmsg}`);
+                            this.env.log.error(`mongodb: collection: ${this.name}: unexpected failed after successful create: ${err.errmsg}`);
                           }
                           else
                           {
                             this.col = col;
                             this.setState(FSM.FSM_DONE);
-                            Log.event({ event: 'mongodb: collection opened', detail: this.name });
+                            this.env.log.event({ event: 'mongodb: collection opened', detail: this.name });
                           }
                         });
                     }
@@ -224,7 +236,7 @@ export class MongoCollection extends DB.DBCollection
               {
                 this.col = col;
                 this.setState(FSM.FSM_DONE);
-                Log.event({ event: 'mongodb: collection opened', detail: this.name });
+                this.env.log.event({ event: 'mongodb: collection opened', detail: this.name });
               }
             });
          }
@@ -257,7 +269,7 @@ export class MongoUpdate extends DB.DBUpdate
         else if (this.forceError())
         {
           this.setState(FSM.FSM_ERROR);
-          Log.error('mongodb: updateOne: forcing error');
+          this.env.log.error('mongodb: updateOne: forcing error');
         }
         else if (this.state == FSM.FSM_STARTING)
         {
@@ -269,7 +281,7 @@ export class MongoUpdate extends DB.DBUpdate
               {
                 this.setState(FSM.FSM_ERROR);
                 this.trace.log();
-                Log.error({ event: 'mongodb: updateOne', detail: err.errmsg });
+                this.env.log.error({ event: 'mongodb: updateOne', detail: err.errmsg });
               }
               else
               {
@@ -277,7 +289,7 @@ export class MongoUpdate extends DB.DBUpdate
                 this.result = result;
                 this.trace.log();
                 if (Context.verbosity)
-                  Log.event({ event: 'mongodb: updateOne', detail: JSON.stringify(result) });
+                  this.env.log.event({ event: 'mongodb: updateOne', detail: JSON.stringify(result) });
               }
             });
         }
@@ -310,7 +322,7 @@ export class MongoDelete extends DB.DBDelete
         else if (this.forceError())
         {
           this.setState(FSM.FSM_ERROR);
-          Log.error('mongodb: deleteOne: forcing error');
+          this.env.log.error('mongodb: deleteOne: forcing error');
         }
         else if (this.state == FSM.FSM_STARTING)
         {
@@ -322,7 +334,7 @@ export class MongoDelete extends DB.DBDelete
               {
                 this.setState(FSM.FSM_ERROR);
                 this.trace.log();
-                Log.error({ event: 'mongodb: deleteOne: failed', detail: err.errmsg });
+                this.env.log.error({ event: 'mongodb: deleteOne: failed', detail: err.errmsg });
               }
               else
               {
@@ -330,7 +342,7 @@ export class MongoDelete extends DB.DBDelete
                 this.result = result;
                 this.trace.log();
                 if (Context.verbosity)
-                  Log.event({ event: 'mongodb: deleteOne: succeeded', detail: JSON.stringify(result) });
+                  this.env.log.event({ event: 'mongodb: deleteOne: succeeded', detail: JSON.stringify(result) });
               }
             });
         }
@@ -365,7 +377,7 @@ export class MongoFind extends DB.DBFind
         else if (this.forceError())
         {
           this.setState(FSM.FSM_ERROR);
-          Log.error('mongodb: findOne: forcing error');
+          this.env.log.error('mongodb: findOne: forcing error');
         }
         else if (this.state == FSM.FSM_STARTING)
         {
@@ -377,7 +389,7 @@ export class MongoFind extends DB.DBFind
               {
                 this.setState(FSM.FSM_ERROR);
                 this.trace.log();
-                Log.error({ event: 'mongodb: findOne', detail: JSON.stringify(err) });
+                this.env.log.error({ event: 'mongodb: findOne', detail: JSON.stringify(err) });
               }
               else
               {
@@ -385,7 +397,7 @@ export class MongoFind extends DB.DBFind
                 this.result = toDBExternal(result);
                 this.trace.log();
                 if (Context.verbosity)
-                  Log.event( { event: '`mongodb: findOne', detail: JSON.stringify(result) });
+                  this.env.log.event( { event: '`mongodb: findOne', detail: JSON.stringify(result) });
               }
             });
         }
@@ -405,7 +417,7 @@ export class MongoQuery extends DB.DBQuery
       this.cursor = null;
       this.trace = new Log.AsyncTimer(`mongodb: query in ${col.name}`);
       if (Context.verbosity)
-        Log.event({ event: 'mongodb: query in ${col.name}', detail: JSON.stringify(filter) });
+        this.env.log.event({ event: 'mongodb: query in ${col.name}', detail: JSON.stringify(filter) });
     }
 
   forceError(): boolean
@@ -423,7 +435,7 @@ export class MongoQuery extends DB.DBQuery
         {
           if (this.forceError())
           {
-            Log.error('mongodb: query: forcing error');
+            this.env.log.error('mongodb: query: forcing error');
             this.setState(FSM.FSM_ERROR);
           }
           else
@@ -450,7 +462,7 @@ export class MongoQuery extends DB.DBQuery
               {
                 this.setState(FSM.FSM_ERROR | DB.FSM_NEEDRELEASE);
                 this.trace.log();
-                Log.error({ event: 'mongodb: cursor.next', detail: err.errmsg });
+                this.env.log.error({ event: 'mongodb: cursor.next', detail: err.errmsg });
               }
               else if (result)
               {
@@ -464,7 +476,7 @@ export class MongoQuery extends DB.DBQuery
                 if (Context.verbosity)
                 {
                   for (let i: number = 0; i < this.result.length; i++)
-                    Log.event(`mongodb: mongodb: query: ${i}: ${JSON.stringify(this.result[i])}`);
+                    this.env.log.event(`mongodb: mongodb: query: ${i}: ${JSON.stringify(this.result[i])}`);
                 }
               }
             });
@@ -506,14 +518,14 @@ export class MongoIndex extends DB.DBIndex
             {
               this.setState(FSM.FSM_ERROR);
               this.trace.log();
-              Log.error({ event: 'mongodb: createIndex', detail: JSON.stringify(err.errmsg) });
+              this.env.log.error({ event: 'mongodb: createIndex', detail: JSON.stringify(err.errmsg) });
             }
             else
             {
               this.setState(FSM.FSM_DONE);
               this.trace.log();
               if (Context.verbosity)
-                Log.event({ event: 'mongodb: createIndex: succeeded', detail: JSON.stringify(result) });
+                this.env.log.event({ event: 'mongodb: createIndex: succeeded', detail: JSON.stringify(result) });
             }
           });
       }
