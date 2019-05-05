@@ -71,9 +71,8 @@ export class MongoClient extends DB.DBClient
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
-  get Production(): boolean { return this.env.context.xflag('production');
-  get InstanceUrl(): string { return this.env.context.xstring('aws_mongodb_uri')
-                                + (this.Production ? '/prod' : '/dev'); }
+  get Production(): boolean { return this.env.context.xflag('production'); }
+  get InstanceUrl(): string { return this.env.context.xstring('aws_mongodb_uri') + (this.Production ? '/prod' : '/dev'); }
   get UserName(): string { return this.env.context.xstring('aws_mongodb_username'); }
   get Password(): string { return this.env.context.xstring('aws_mongodb_password'); }
   get mongoErrorFrequency(): number { return this.env.context.xnumber('mongo_error_frequency'); }
@@ -132,7 +131,7 @@ export class MongoClient extends DB.DBClient
       let sslCA = readPem();
       let mdbOptions = { auth: { user: this.UserName, password: this.Password }, ssl: true, sslCA: sslCA, useNewUrlParser: true };
       let localClient = new MDB.MongoClient(this.InstanceUrl, mdbOptions);
-      this.env.log.event({ event: 'mongodb: connecting to database', detail:  InstanceUrl });
+      this.env.log.event({ event: 'mongodb: connecting to database', detail:  this.InstanceUrl });
 
       localClient.connect((err: MDB.MongoError, client: MDB.MongoClient) => {
           if (this.done)
@@ -142,8 +141,6 @@ export class MongoClient extends DB.DBClient
             this.setState(FSM.FSM_ERROR);
             this.env.log.error({ event: 'client connection failed', detail: JSON.stringify(err) });
             this.env.log.error('database unavailable, exiting');
-            this.env.log.dump();
-            process.exit(1);
           }
           else
           {
@@ -165,12 +162,14 @@ export class MongoClient extends DB.DBClient
 
 export class MongoCollection extends DB.DBCollection
 {
-  constructor(typeName: string, client: MongoClient, name: string, options: any)
+  constructor(env: DBMongoEnvironment, client: MongoClient, name: string, options: any)
     {
-      super(typeName, client, name, options);
+      super(env, client, name, options);
       this.waitOn(client);
       this.col = null;
     }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
   mdbclient(): MDB.MongoClient
     {
@@ -246,14 +245,16 @@ export class MongoCollection extends DB.DBCollection
 
 export class MongoUpdate extends DB.DBUpdate
 {
-  trace: Log.AsyncTimer;
+  trace: LogAbstract.AsyncTimer;
 
-  constructor(typeName: string, col: MongoCollection, query: any, values: any)
+  constructor(env: DBMongoEnvironment, col: MongoCollection, query: any, values: any)
     {
-      super(typeName, col, toDBInternal(query), toDBInternal(values));
+      super(env, col, toDBInternal(query), toDBInternal(values));
       this.waitOn(col);
-      this.trace = new Log.AsyncTimer(`mongodb: update in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update in ${col.name}`);
     }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
   forceError(): boolean
     {
@@ -288,7 +289,7 @@ export class MongoUpdate extends DB.DBUpdate
                 this.setState(FSM.FSM_DONE);
                 this.result = result;
                 this.trace.log();
-                if (Context.verbosity)
+                if (this.env.context.xnumber('verbosity'))
                   this.env.log.event({ event: 'mongodb: updateOne', detail: JSON.stringify(result) });
               }
             });
@@ -299,14 +300,16 @@ export class MongoUpdate extends DB.DBUpdate
 
 export class MongoDelete extends DB.DBDelete
 {
-  trace: Log.AsyncTimer;
+  trace: LogAbstract.AsyncTimer;
 
-  constructor(typeName: string, col: MongoCollection, query: any)
+  constructor(env: DBMongoEnvironment, col: MongoCollection, query: any)
     {
-      super(typeName, col, toDBInternal(query));
+      super(env, col, toDBInternal(query));
       this.waitOn(col);
-      this.trace = new Log.AsyncTimer(`mongodb: delete in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete in ${col.name}`);
     }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
   forceError(): boolean
     {
@@ -341,7 +344,7 @@ export class MongoDelete extends DB.DBDelete
                 this.setState(FSM.FSM_DONE);
                 this.result = result;
                 this.trace.log();
-                if (Context.verbosity)
+                if (this.env.context.xnumber('verbosity'))
                   this.env.log.event({ event: 'mongodb: deleteOne: succeeded', detail: JSON.stringify(result) });
               }
             });
@@ -352,16 +355,18 @@ export class MongoDelete extends DB.DBDelete
 
 export class MongoFind extends DB.DBFind
 {
-  trace: Log.AsyncTimer;
+  trace: LogAbstract.AsyncTimer;
   prevFind: MongoFind;
 
-  constructor(typeName: string, col: MongoCollection, filter: any)
+  constructor(env: DBMongoEnvironment, col: MongoCollection, filter: any)
     {
-      super(typeName, col, toDBInternal(filter));
+      super(env, col, toDBInternal(filter));
       this.waitOn(col);
-      this.trace = new Log.AsyncTimer(`mongodb: find in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find in ${col.name}`);
       this.prevFind = null;
     }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
   forceError(): boolean
     {
@@ -396,7 +401,7 @@ export class MongoFind extends DB.DBFind
                 this.setState(FSM.FSM_DONE);
                 this.result = toDBExternal(result);
                 this.trace.log();
-                if (Context.verbosity)
+                if (this.env.context.xnumber('verbosity'))
                   this.env.log.event( { event: '`mongodb: findOne', detail: JSON.stringify(result) });
               }
             });
@@ -408,17 +413,19 @@ export class MongoFind extends DB.DBFind
 export class MongoQuery extends DB.DBQuery
 {
   cursor: MDB.Cursor;
-  trace: Log.AsyncTimer;
+  trace: LogAbstract.AsyncTimer;
 
-  constructor(typeName: string, col: MongoCollection, filter: any)
+  constructor(env: DBMongoEnvironment, col: MongoCollection, filter: any)
     {
-      super(typeName, col, toDBInternal(filter));
+      super(env, col, toDBInternal(filter));
       this.waitOn(col);
       this.cursor = null;
-      this.trace = new Log.AsyncTimer(`mongodb: query in ${col.name}`);
-      if (Context.verbosity)
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query in ${col.name}`);
+      if (this.env.context.xnumber('verbosity'))
         this.env.log.event({ event: 'mongodb: query in ${col.name}', detail: JSON.stringify(filter) });
     }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
   forceError(): boolean
     {
@@ -473,7 +480,7 @@ export class MongoQuery extends DB.DBQuery
               {
                 this.setState(FSM.FSM_DONE | DB.FSM_NEEDRELEASE);
                 this.trace.log();
-                if (Context.verbosity)
+                if (this.env.context.xnumber('verbosity'))
                 {
                   for (let i: number = 0; i < this.result.length; i++)
                     this.env.log.event(`mongodb: mongodb: query: ${i}: ${JSON.stringify(this.result[i])}`);
@@ -495,14 +502,16 @@ export class MongoQuery extends DB.DBQuery
 
 export class MongoIndex extends DB.DBIndex
 {
-  trace: Log.AsyncTimer;
+  trace: LogAbstract.AsyncTimer;
 
-  constructor(typeName: string, col: MongoCollection, uid: string)
+  constructor(env: DBMongoEnvironment, col: MongoCollection, uid: string)
     {
-      super(typeName, col, uid);
+      super(env, col, uid);
       this.waitOn(col);
-      this.trace = new Log.AsyncTimer(`mongodb: index in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index in ${col.name}`);
     }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
 
   tick(): void
     {
@@ -524,7 +533,7 @@ export class MongoIndex extends DB.DBIndex
             {
               this.setState(FSM.FSM_DONE);
               this.trace.log();
-              if (Context.verbosity)
+              if (this.env.context.xnumber('verbosity'))
                 this.env.log.event({ event: 'mongodb: createIndex: succeeded', detail: JSON.stringify(result) });
             }
           });
@@ -534,8 +543,8 @@ export class MongoIndex extends DB.DBIndex
 
 export class MongoClose extends DB.DBClose
 {
-  constructor(typeName: string, client: MongoClient)
+  constructor(env: DBMongoEnvironment, client: MongoClient)
     {
-      super(typeName, client);
+      super(env, client);
     }
 }

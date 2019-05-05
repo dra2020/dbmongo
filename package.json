@@ -1,6 +1,6 @@
 {
   "name": "@terrencecrowley/dbmongo",
-  "version": "1.0.5",
+  "version": "1.0.8",
   "description": "AWS Mongo-based implementation of database abstraction.",
   "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",
@@ -23,7 +23,7 @@
   },
   "homepage": "https://github.com/terrencecrowley/dbmongo#readme",
   "devDependencies": {
-    "@types/mongodb": "^3.1.19",
+    "@types/mongodb": "^3.1.26",
     "@types/node": "11.13.7",
     "source-map-loader": "^0.2.4",
     "ts-loader": "^5.4.3",
@@ -33,12 +33,14 @@
     "webpack-cli": "^3.3.1"
   },
   "dependencies": {
-    "@terrencecrowley/context": "^1.0.6",
-    "@terrencecrowley/dbabstract": "^1.0.5",
-    "@terrencecrowley/fsm": "^1.0.6",
-    "@terrencecrowley/logabstract": "^1.0.5",
-    "@terrencecrowley/storage": "^1.0.11",
+    "@terrencecrowley/context": "^1.0.8",
+    "@terrencecrowley/dbabstract": "^1.0.7",
+    "@terrencecrowley/fsm": "^1.0.10",
+    "@terrencecrowley/fsmfile": "^1.0.6",
+    "@terrencecrowley/jsonstream": "^1.0.8",
+    "@terrencecrowley/logabstract": "^1.0.8",
+    "@terrencecrowley/storage": "^1.0.14",
     "@terrencecrowley/util": "^1.0.15",
-    "mongodb": "^3.1.13"
+    "mongodb": "^3.2.3"
   }
 }
