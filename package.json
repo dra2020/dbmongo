@@ -1,6 +1,6 @@
 {
   "name": "@terrencecrowley/dbmongo",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "AWS Mongo-based implementation of database abstraction.",
   "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",

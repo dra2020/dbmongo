@@ -251,7 +251,7 @@ export class MongoUpdate extends DB.DBUpdate
     {
       super(env, col, toDBInternal(query), toDBInternal(values));
       this.waitOn(col);
-      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update in ${col.name}`, 1);
     }
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
@@ -306,7 +306,7 @@ export class MongoDelete extends DB.DBDelete
     {
       super(env, col, toDBInternal(query));
       this.waitOn(col);
-      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete in ${col.name}`, 1);
     }
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
@@ -362,7 +362,7 @@ export class MongoFind extends DB.DBFind
     {
       super(env, col, toDBInternal(filter));
       this.waitOn(col);
-      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find in ${col.name}`, 1);
       this.prevFind = null;
     }
 
@@ -420,7 +420,7 @@ export class MongoQuery extends DB.DBQuery
       super(env, col, toDBInternal(filter));
       this.waitOn(col);
       this.cursor = null;
-      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query in ${col.name}`, 1);
       if (this.env.context.xnumber('verbosity'))
         this.env.log.event({ event: 'mongodb: query in ${col.name}', detail: JSON.stringify(filter) });
     }
@@ -508,7 +508,7 @@ export class MongoIndex extends DB.DBIndex
     {
       super(env, col, uid);
       this.waitOn(col);
-      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index in ${col.name}`);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index in ${col.name}`, 1);
     }
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }

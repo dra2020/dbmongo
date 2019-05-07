@@ -301,7 +301,7 @@ class MongoUpdate extends DB.DBUpdate {
     constructor(env, col, query, values) {
         super(env, col, toDBInternal(query), toDBInternal(values));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update in ${col.name}`);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update in ${col.name}`, 1);
     }
     get env() { return this._env; }
     forceError() {
@@ -342,7 +342,7 @@ class MongoDelete extends DB.DBDelete {
     constructor(env, col, query) {
         super(env, col, toDBInternal(query));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete in ${col.name}`);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete in ${col.name}`, 1);
     }
     get env() { return this._env; }
     forceError() {
@@ -383,7 +383,7 @@ class MongoFind extends DB.DBFind {
     constructor(env, col, filter) {
         super(env, col, toDBInternal(filter));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find in ${col.name}`);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find in ${col.name}`, 1);
         this.prevFind = null;
     }
     get env() { return this._env; }
@@ -426,7 +426,7 @@ class MongoQuery extends DB.DBQuery {
         super(env, col, toDBInternal(filter));
         this.waitOn(col);
         this.cursor = null;
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query in ${col.name}`);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query in ${col.name}`, 1);
         if (this.env.context.xnumber('verbosity'))
             this.env.log.event({ event: 'mongodb: query in ${col.name}', detail: JSON.stringify(filter) });
     }
@@ -493,7 +493,7 @@ class MongoIndex extends DB.DBIndex {
     constructor(env, col, uid) {
         super(env, col, uid);
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index in ${col.name}`);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index in ${col.name}`, 1);
     }
     get env() { return this._env; }
     tick() {
