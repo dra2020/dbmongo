@@ -186,7 +186,7 @@ export class MongoCollection extends DB.DBCollection
     {
       if (this.ready)
       {
-        if (this.isChildError)
+        if (this.isDependentError)
           this.setState(FSM.FSM_ERROR);
         else if (this.forceError() && this.forceError() && this.forceError()) // Don't do this too often
         {
@@ -265,7 +265,7 @@ export class MongoUpdate extends DB.DBUpdate
     {
       if (this.ready)
       {
-        if (this.isChildError)
+        if (this.isDependentError)
           this.setState(FSM.FSM_ERROR);
         else if (this.forceError())
         {
@@ -320,7 +320,7 @@ export class MongoDelete extends DB.DBDelete
     {
       if (this.ready)
       {
-        if (this.isChildError)
+        if (this.isDependentError)
           this.setState(FSM.FSM_ERROR);
         else if (this.forceError())
         {
@@ -377,7 +377,7 @@ export class MongoFind extends DB.DBFind
     {
       if (this.ready)
       {
-        if (this.isChildError)
+        if (this.isDependentError)
           this.setState(FSM.FSM_ERROR);
         else if (this.forceError())
         {
@@ -434,7 +434,7 @@ export class MongoQuery extends DB.DBQuery
 
   tick(): void
     {
-      if (this.ready && this.isChildError)
+      if (this.ready && this.isDependentError)
         this.setState(FSM.FSM_ERROR);
       else if (this.ready)
       {
@@ -515,7 +515,7 @@ export class MongoIndex extends DB.DBIndex
 
   tick(): void
     {
-      if (this.ready && this.isChildError)
+      if (this.ready && this.isDependentError)
         this.setState(FSM.FSM_ERROR);
       else if (this.ready && this.state == FSM.FSM_STARTING)
       {

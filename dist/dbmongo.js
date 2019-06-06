@@ -247,7 +247,7 @@ class MongoCollection extends DB.DBCollection {
     }
     tick() {
         if (this.ready) {
-            if (this.isChildError)
+            if (this.isDependentError)
                 this.setState(FSM.FSM_ERROR);
             else if (this.forceError() && this.forceError() && this.forceError()) // Don't do this too often
              {
@@ -309,7 +309,7 @@ class MongoUpdate extends DB.DBUpdate {
     }
     tick() {
         if (this.ready) {
-            if (this.isChildError)
+            if (this.isDependentError)
                 this.setState(FSM.FSM_ERROR);
             else if (this.forceError()) {
                 this.setState(FSM.FSM_ERROR);
@@ -350,7 +350,7 @@ class MongoDelete extends DB.DBDelete {
     }
     tick() {
         if (this.ready) {
-            if (this.isChildError)
+            if (this.isDependentError)
                 this.setState(FSM.FSM_ERROR);
             else if (this.forceError()) {
                 this.setState(FSM.FSM_ERROR);
@@ -392,7 +392,7 @@ class MongoFind extends DB.DBFind {
     }
     tick() {
         if (this.ready) {
-            if (this.isChildError)
+            if (this.isDependentError)
                 this.setState(FSM.FSM_ERROR);
             else if (this.forceError()) {
                 this.setState(FSM.FSM_ERROR);
@@ -435,7 +435,7 @@ class MongoQuery extends DB.DBQuery {
         return this.col.client.forceError();
     }
     tick() {
-        if (this.ready && this.isChildError)
+        if (this.ready && this.isDependentError)
             this.setState(FSM.FSM_ERROR);
         else if (this.ready) {
             if (this.state == FSM.FSM_STARTING) {
@@ -497,7 +497,7 @@ class MongoIndex extends DB.DBIndex {
     }
     get env() { return this._env; }
     tick() {
-        if (this.ready && this.isChildError)
+        if (this.ready && this.isDependentError)
             this.setState(FSM.FSM_ERROR);
         else if (this.ready && this.state == FSM.FSM_STARTING) {
             this.setState(FSM.FSM_PENDING);
