@@ -129,10 +129,10 @@ const fs = __webpack_require__(/*! fs */ "fs");
 // Public mongodb API
 const MDB = __webpack_require__(/*! mongodb */ "./node_modules/mongodb/index.js");
 // Shared libraries
-const Util = __webpack_require__(/*! @terrencecrowley/util */ "@terrencecrowley/util");
-const LogAbstract = __webpack_require__(/*! @terrencecrowley/logabstract */ "@terrencecrowley/logabstract");
-const FSM = __webpack_require__(/*! @terrencecrowley/fsm */ "@terrencecrowley/fsm");
-const DB = __webpack_require__(/*! @terrencecrowley/dbabstract */ "@terrencecrowley/dbabstract");
+const Util = __webpack_require__(/*! @dra2020/util */ "@dra2020/util");
+const LogAbstract = __webpack_require__(/*! @dra2020/logabstract */ "@dra2020/logabstract");
+const FSM = __webpack_require__(/*! @dra2020/fsm */ "@dra2020/fsm");
+const DB = __webpack_require__(/*! @dra2020/dbabstract */ "@dra2020/dbabstract");
 const DBMongoContextDefaults = {
     aws_mongodb_uri: '',
     aws_mongodb_username: '',
@@ -23920,7 +23920,7 @@ module.exports = writeCommand;
 /*! exports provided: _args, _from, _id, _inBundle, _integrity, _location, _phantomChildren, _requested, _requiredBy, _resolved, _spec, _where, author, bugs, dependencies, description, devDependencies, files, homepage, keywords, license, main, name, optionalDependencies, peerOptionalDependencies, repository, scripts, version, default */
 /***/ (function(module) {
 
-module.exports = {"_args":[["mongodb-core@3.2.3","/Users/terry/Projects/dbmongo"]],"_from":"mongodb-core@3.2.3","_id":"mongodb-core@3.2.3","_inBundle":false,"_integrity":"sha512-UyI0rmvPPkjOJV8XGWa9VCTq7R4hBVipimhnAXeSXnuAPjuTqbyfA5Ec9RcYJ1Hhu+ISnc8bJ1KfGZd4ZkYARQ==","_location":"/mongodb-core","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"mongodb-core@3.2.3","name":"mongodb-core","escapedName":"mongodb-core","rawSpec":"3.2.3","saveSpec":null,"fetchSpec":"3.2.3"},"_requiredBy":["/mongodb"],"_resolved":"https://registry.npmjs.org/mongodb-core/-/mongodb-core-3.2.3.tgz","_spec":"3.2.3","_where":"/Users/terry/Projects/dbmongo","author":{"name":"Christian Kvalheim"},"bugs":{"url":"https://github.com/mongodb-js/mongodb-core/issues"},"dependencies":{"bson":"^1.1.1","require_optional":"^1.0.1","safe-buffer":"^5.1.2","saslprep":"^1.0.0"},"description":"Core MongoDB driver functionality, no bells and whistles and meant for integration not end applications","devDependencies":{"chai":"^4.2.0","chai-subset":"^1.6.0","co":"^4.6.0","eslint":"^4.6.1","eslint-plugin-prettier":"^2.2.0","jsdoc":"3.5.4","mongodb-extjson":"^2.1.2","mongodb-mock-server":"^1.0.1","mongodb-test-runner":"^1.3.4","prettier":"~1.12.0","sinon":"^6.0.0","snappy":"^6.1.1","standard-version":"^4.4.0"},"files":["index.js","lib"],"homepage":"https://github.com/mongodb-js/mongodb-core","keywords":["mongodb","core"],"license":"Apache-2.0","main":"index.js","name":"mongodb-core","optionalDependencies":{"saslprep":"^1.0.0"},"peerOptionalDependencies":{"kerberos":"^1.0.0","mongodb-extjson":"^2.1.2","snappy":"^6.1.1","bson-ext":"^2.0.0"},"repository":{"type":"git","url":"git://github.com/mongodb-js/mongodb-core.git"},"scripts":{"atlas":"node ./test/atlas.js","changelog":"conventional-changelog -p angular -i HISTORY.md -s","coverage":"nyc node test/runner.js -t functional -l && node_modules/.bin/nyc report --reporter=text-lcov | node_modules/.bin/coveralls","format":"prettier --print-width 100 --tab-width 2 --single-quote --write index.js test/**/*.js lib/**/*.js","lint":"eslint index.js lib test","release":"standard-version -i HISTORY.md","test":"npm run lint && mongodb-test-runner -t 60000 test/tests"},"version":"3.2.3"};
+module.exports = {"_args":[["mongodb-core@3.2.3","/Users/terrencecrowley/Projects/dbmongo"]],"_from":"mongodb-core@3.2.3","_id":"mongodb-core@3.2.3","_inBundle":false,"_integrity":"sha512-UyI0rmvPPkjOJV8XGWa9VCTq7R4hBVipimhnAXeSXnuAPjuTqbyfA5Ec9RcYJ1Hhu+ISnc8bJ1KfGZd4ZkYARQ==","_location":"/mongodb-core","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"mongodb-core@3.2.3","name":"mongodb-core","escapedName":"mongodb-core","rawSpec":"3.2.3","saveSpec":null,"fetchSpec":"3.2.3"},"_requiredBy":["/mongodb"],"_resolved":"https://registry.npmjs.org/mongodb-core/-/mongodb-core-3.2.3.tgz","_spec":"3.2.3","_where":"/Users/terrencecrowley/Projects/dbmongo","author":{"name":"Christian Kvalheim"},"bugs":{"url":"https://github.com/mongodb-js/mongodb-core/issues"},"dependencies":{"bson":"^1.1.1","require_optional":"^1.0.1","safe-buffer":"^5.1.2","saslprep":"^1.0.0"},"description":"Core MongoDB driver functionality, no bells and whistles and meant for integration not end applications","devDependencies":{"chai":"^4.2.0","chai-subset":"^1.6.0","co":"^4.6.0","eslint":"^4.6.1","eslint-plugin-prettier":"^2.2.0","jsdoc":"3.5.4","mongodb-extjson":"^2.1.2","mongodb-mock-server":"^1.0.1","mongodb-test-runner":"^1.3.4","prettier":"~1.12.0","sinon":"^6.0.0","snappy":"^6.1.1","standard-version":"^4.4.0"},"files":["index.js","lib"],"homepage":"https://github.com/mongodb-js/mongodb-core","keywords":["mongodb","core"],"license":"Apache-2.0","main":"index.js","name":"mongodb-core","optionalDependencies":{"saslprep":"^1.0.0"},"peerOptionalDependencies":{"kerberos":"^1.0.0","mongodb-extjson":"^2.1.2","snappy":"^6.1.1","bson-ext":"^2.0.0"},"repository":{"type":"git","url":"git://github.com/mongodb-js/mongodb-core.git"},"scripts":{"atlas":"node ./test/atlas.js","changelog":"conventional-changelog -p angular -i HISTORY.md -s","coverage":"nyc node test/runner.js -t functional -l && node_modules/.bin/nyc report --reporter=text-lcov | node_modules/.bin/coveralls","format":"prettier --print-width 100 --tab-width 2 --single-quote --write index.js test/**/*.js lib/**/*.js","lint":"eslint index.js lib test","release":"standard-version -i HISTORY.md","test":"npm run lint && mongodb-test-runner -t 60000 test/tests"},"version":"3.2.3"};
 
 /***/ }),
 
@@ -42529,10 +42529,10 @@ module.exports = {
 /*!*******************************************!*\
   !*** ./node_modules/mongodb/package.json ***!
   \*******************************************/
-/*! exports provided: _from, _id, _inBundle, _integrity, _location, _phantomChildren, _requested, _requiredBy, _resolved, _shasum, _spec, _where, bugs, bundleDependencies, dependencies, deprecated, description, devDependencies, engines, files, homepage, keywords, license, main, name, repository, scripts, version, default */
+/*! exports provided: _args, _from, _id, _inBundle, _integrity, _location, _phantomChildren, _requested, _requiredBy, _resolved, _spec, _where, bugs, dependencies, description, devDependencies, engines, files, homepage, keywords, license, main, name, repository, scripts, version, default */
 /***/ (function(module) {
 
-module.exports = {"_from":"mongodb@^3.1.13","_id":"mongodb@3.2.3","_inBundle":false,"_integrity":"sha512-jw8UyPsq4QleZ9z+t/pIVy3L++51vKdaJ2Q/XXeYxk/3cnKioAH8H6f5tkkDivrQL4PUgUOHe9uZzkpRFH1XtQ==","_location":"/mongodb","_phantomChildren":{},"_requested":{"type":"range","registry":true,"raw":"mongodb@^3.1.13","name":"mongodb","escapedName":"mongodb","rawSpec":"^3.1.13","saveSpec":null,"fetchSpec":"^3.1.13"},"_requiredBy":["#USER","/"],"_resolved":"https://registry.npmjs.org/mongodb/-/mongodb-3.2.3.tgz","_shasum":"4610ee33d300caa74329c2dd03e137210723cd91","_spec":"mongodb@^3.1.13","_where":"/Users/terry/Projects/dbmongo","bugs":{"url":"https://github.com/mongodb/node-mongodb-native/issues"},"bundleDependencies":false,"dependencies":{"mongodb-core":"^3.2.3","safe-buffer":"^5.1.2"},"deprecated":false,"description":"The official MongoDB driver for Node.js","devDependencies":{"bluebird":"3.5.0","bson":"^1.0.4","chai":"^4.1.1","chai-subset":"^1.6.0","co":"4.6.0","coveralls":"^2.11.6","eslint":"^4.5.0","eslint-plugin-prettier":"^2.2.0","istanbul":"^0.4.5","jsdoc":"3.5.5","lodash.camelcase":"^4.3.0","mocha-sinon":"^2.1.0","mongodb-extjson":"^2.1.1","mongodb-mock-server":"^1.0.1","mongodb-test-runner":"^1.1.18","prettier":"~1.12.0","semver":"^5.5.0","sinon":"^4.3.0","sinon-chai":"^3.2.0","standard-version":"^4.4.0","worker-farm":"^1.5.0"},"engines":{"node":">=4"},"files":["index.js","lib"],"homepage":"https://github.com/mongodb/node-mongodb-native","keywords":["mongodb","driver","official"],"license":"Apache-2.0","main":"index.js","name":"mongodb","repository":{"type":"git","url":"git+ssh://git@github.com/mongodb/node-mongodb-native.git"},"scripts":{"atlas":"node ./test/atlas_connectivity_tests.js","bench":"node test/driverBench/","coverage":"istanbul cover mongodb-test-runner -- -t 60000  test/unit test/functional","format":"prettier --print-width 100 --tab-width 2 --single-quote --write 'test/**/*.js' 'lib/**/*.js'","generate-evergreen":"node .evergreen/generate_evergreen_tasks.js","lint":"eslint lib test","release":"standard-version -i HISTORY.md","test":"npm run lint && mongodb-test-runner -t 60000 test/unit test/functional"},"version":"3.2.3"};
+module.exports = {"_args":[["mongodb@3.2.3","/Users/terrencecrowley/Projects/dbmongo"]],"_from":"mongodb@3.2.3","_id":"mongodb@3.2.3","_inBundle":false,"_integrity":"sha512-jw8UyPsq4QleZ9z+t/pIVy3L++51vKdaJ2Q/XXeYxk/3cnKioAH8H6f5tkkDivrQL4PUgUOHe9uZzkpRFH1XtQ==","_location":"/mongodb","_phantomChildren":{},"_requested":{"type":"version","registry":true,"raw":"mongodb@3.2.3","name":"mongodb","escapedName":"mongodb","rawSpec":"3.2.3","saveSpec":null,"fetchSpec":"3.2.3"},"_requiredBy":["/"],"_resolved":"https://registry.npmjs.org/mongodb/-/mongodb-3.2.3.tgz","_spec":"3.2.3","_where":"/Users/terrencecrowley/Projects/dbmongo","bugs":{"url":"https://github.com/mongodb/node-mongodb-native/issues"},"dependencies":{"mongodb-core":"^3.2.3","safe-buffer":"^5.1.2"},"description":"The official MongoDB driver for Node.js","devDependencies":{"bluebird":"3.5.0","bson":"^1.0.4","chai":"^4.1.1","chai-subset":"^1.6.0","co":"4.6.0","coveralls":"^2.11.6","eslint":"^4.5.0","eslint-plugin-prettier":"^2.2.0","istanbul":"^0.4.5","jsdoc":"3.5.5","lodash.camelcase":"^4.3.0","mocha-sinon":"^2.1.0","mongodb-extjson":"^2.1.1","mongodb-mock-server":"^1.0.1","mongodb-test-runner":"^1.1.18","prettier":"~1.12.0","semver":"^5.5.0","sinon":"^4.3.0","sinon-chai":"^3.2.0","standard-version":"^4.4.0","worker-farm":"^1.5.0"},"engines":{"node":">=4"},"files":["index.js","lib"],"homepage":"https://github.com/mongodb/node-mongodb-native","keywords":["mongodb","driver","official"],"license":"Apache-2.0","main":"index.js","name":"mongodb","repository":{"type":"git","url":"git+ssh://git@github.com/mongodb/node-mongodb-native.git"},"scripts":{"atlas":"node ./test/atlas_connectivity_tests.js","bench":"node test/driverBench/","coverage":"istanbul cover mongodb-test-runner -- -t 60000  test/unit test/functional","format":"prettier --print-width 100 --tab-width 2 --single-quote --write 'test/**/*.js' 'lib/**/*.js'","generate-evergreen":"node .evergreen/generate_evergreen_tasks.js","lint":"eslint lib test","release":"standard-version -i HISTORY.md","test":"npm run lint && mongodb-test-runner -t 60000 test/unit test/functional"},"version":"3.2.3"};
 
 /***/ }),
 
@@ -44657,47 +44657,47 @@ module.exports = function(module) {
 
 /***/ }),
 
-/***/ "@terrencecrowley/dbabstract":
-/*!**********************************************!*\
-  !*** external "@terrencecrowley/dbabstract" ***!
-  \**********************************************/
+/***/ "@dra2020/dbabstract":
+/*!**************************************!*\
+  !*** external "@dra2020/dbabstract" ***!
+  \**************************************/
 /*! no static exports found */
 /***/ (function(module, exports) {
 
-module.exports = require("@terrencecrowley/dbabstract");
+module.exports = require("@dra2020/dbabstract");
 
 /***/ }),
 
-/***/ "@terrencecrowley/fsm":
+/***/ "@dra2020/fsm":
+/*!*******************************!*\
+  !*** external "@dra2020/fsm" ***!
+  \*******************************/
+/*! no static exports found */
+/***/ (function(module, exports) {
+
+module.exports = require("@dra2020/fsm");
+
+/***/ }),
+
+/***/ "@dra2020/logabstract":
 /*!***************************************!*\
-  !*** external "@terrencecrowley/fsm" ***!
+  !*** external "@dra2020/logabstract" ***!
   \***************************************/
 /*! no static exports found */
 /***/ (function(module, exports) {
 
-module.exports = require("@terrencecrowley/fsm");
+module.exports = require("@dra2020/logabstract");
 
 /***/ }),
 
-/***/ "@terrencecrowley/logabstract":
-/*!***********************************************!*\
-  !*** external "@terrencecrowley/logabstract" ***!
-  \***********************************************/
+/***/ "@dra2020/util":
+/*!********************************!*\
+  !*** external "@dra2020/util" ***!
+  \********************************/
 /*! no static exports found */
 /***/ (function(module, exports) {
 
-module.exports = require("@terrencecrowley/logabstract");
-
-/***/ }),
-
-/***/ "@terrencecrowley/util":
-/*!****************************************!*\
-  !*** external "@terrencecrowley/util" ***!
-  \****************************************/
-/*! no static exports found */
-/***/ (function(module, exports) {
-
-module.exports = require("@terrencecrowley/util");
+module.exports = require("@dra2020/util");
 
 /***/ }),
 

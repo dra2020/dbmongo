@@ -1,9 +1,9 @@
 var path = require('path');
 var fs = require('fs');
 var externalModules = {};
-fs.readdirSync('node_modules/@terrencecrowley')
+fs.readdirSync('node_modules/@dra2020')
   .forEach((mod) => {
-    mod = '@terrencecrowley/' + mod;
+    mod = '@dra2020/' + mod;
     externalModules[mod] = 'commonjs ' + mod;
   });
 
