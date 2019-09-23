@@ -90,6 +90,14 @@ export class MongoClient extends DB.DBClient
     return update;
   }
 
+  createUnset(col: MongoCollection, query: any, values: any): DB.DBUnset
+  {
+    let unset = new MongoUnset(this.env, col, query, values);
+    if (query && query.id)
+      this.serializerUpdate.serialize(query.id, unset);
+    return unset;
+  }
+
   createDelete(col: MongoCollection, query: any): DB.DBDelete
   {
     return new MongoDelete(this.env, col, query);
@@ -276,6 +284,61 @@ export class MongoUpdate extends DB.DBUpdate
         {
           this.setState(FSM.FSM_PENDING);
           this.col.col.updateOne(this.query, { $set: this.values }, { upsert: true }, (err: MDB.MongoError, result: any) => {
+              if (this.done)
+                return;
+              else if (err)
+              {
+                this.setState(FSM.FSM_ERROR);
+                this.trace.log();
+                this.env.log.error({ event: 'mongodb: updateOne', detail: err.errmsg });
+              }
+              else
+              {
+                this.setState(FSM.FSM_DONE);
+                this.result = result;
+                this.trace.log();
+                if (this.env.context.xnumber('verbosity'))
+                  this.env.log.event({ event: 'mongodb: updateOne', detail: JSON.stringify(result) });
+              }
+            });
+        }
+      }
+    }
+}
+
+export class MongoUnset extends DB.DBUnset
+{
+  trace: LogAbstract.AsyncTimer;
+
+  constructor(env: DBMongoEnvironment, col: MongoCollection, query: any, values: any)
+    {
+      super(env, col, toDBInternal(query), toDBInternal(values));
+      this.waitOn(col);
+      this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: unset in ${col.name}`, 1);
+    }
+
+  get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
+
+  forceError(): boolean
+    {
+      return (this.col.client as MongoClient).forceError();
+    }
+
+  tick(): void
+    {
+      if (this.ready)
+      {
+        if (this.isDependentError)
+          this.setState(FSM.FSM_ERROR);
+        else if (this.forceError())
+        {
+          this.setState(FSM.FSM_ERROR);
+          this.env.log.error('mongodb: updateOne: forcing error');
+        }
+        else if (this.state == FSM.FSM_STARTING)
+        {
+          this.setState(FSM.FSM_PENDING);
+          this.col.col.updateOne(this.query, { $unset: this.values }, (err: MDB.MongoError, result: any) => {
               if (this.done)
                 return;
               else if (err)

@@ -1,6 +1,6 @@
 {
   "name": "@dra2020/dbmongo",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "AWS Mongo-based implementation of database abstraction.",
   "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",
@@ -26,21 +26,21 @@
     "@types/mongodb": "^3.1.26",
     "@types/node": "11.13.7",
     "source-map-loader": "^0.2.4",
-    "ts-loader": "^5.4.3",
+    "ts-loader": "^5.4.5",
     "tsify": "^4.0.1",
-    "typescript": "^3.4.5",
-    "webpack": "^4.30.0",
-    "webpack-cli": "^3.3.1"
+    "typescript": "^3.6.3",
+    "webpack": "^4.40.2",
+    "webpack-cli": "^3.3.9"
   },
   "dependencies": {
-    "@dra2020/context": "^1.0.9",
-    "@dra2020/dbabstract": "^1.0.7",
-    "@dra2020/fsm": "^1.0.11",
+    "@dra2020/context": "^1.0.12",
+    "@dra2020/dbabstract": "^1.0.9",
+    "@dra2020/fsm": "^1.0.15",
     "@dra2020/fsmfile": "^1.0.6",
-    "@dra2020/jsonstream": "^1.0.13",
-    "@dra2020/logabstract": "^1.0.9",
-    "@dra2020/storage": "^1.0.14",
-    "@dra2020/util": "^1.0.18",
+    "@dra2020/jsonstream": "^1.0.20",
+    "@dra2020/logabstract": "^1.0.12",
+    "@dra2020/storage": "^1.0.21",
+    "@dra2020/util": "^1.0.30",
     "mongodb": "^3.2.3"
   }
 }

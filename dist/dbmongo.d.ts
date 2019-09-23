@@ -22,6 +22,7 @@ export declare class MongoClient extends DB.DBClient {
     readonly mongoErrorFrequency: number;
     createCollection(name: string, options: any): DB.DBCollection;
     createUpdate(col: MongoCollection, query: any, values: any): DB.DBUpdate;
+    createUnset(col: MongoCollection, query: any, values: any): DB.DBUnset;
     createDelete(col: MongoCollection, query: any): DB.DBDelete;
     createFind(col: MongoCollection, filter: any): DB.DBFind;
     createQuery(col: MongoCollection, filter: any): DB.DBQuery;
@@ -38,6 +39,13 @@ export declare class MongoCollection extends DB.DBCollection {
     tick(): void;
 }
 export declare class MongoUpdate extends DB.DBUpdate {
+    trace: LogAbstract.AsyncTimer;
+    constructor(env: DBMongoEnvironment, col: MongoCollection, query: any, values: any);
+    readonly env: DBMongoEnvironment;
+    forceError(): boolean;
+    tick(): void;
+}
+export declare class MongoUnset extends DB.DBUnset {
     trace: LogAbstract.AsyncTimer;
     constructor(env: DBMongoEnvironment, col: MongoCollection, query: any, values: any);
     readonly env: DBMongoEnvironment;
