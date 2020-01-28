@@ -1,6 +1,6 @@
 {
   "name": "@dra2020/dbmongo",
-  "version": "1.0.13",
+  "version": "1.1.0",
   "description": "AWS Mongo-based implementation of database abstraction.",
   "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",
@@ -34,8 +34,8 @@
   },
   "dependencies": {
     "@dra2020/context": "^1.0.12",
-    "@dra2020/dbabstract": "^1.0.9",
-    "@dra2020/fsm": "^1.0.15",
+    "@dra2020/dbabstract": "^1.1.0",
+    "@dra2020/fsm": "^1.1.0",
     "@dra2020/fsmfile": "^1.0.6",
     "@dra2020/jsonstream": "^1.0.20",
     "@dra2020/logabstract": "^1.0.12",
