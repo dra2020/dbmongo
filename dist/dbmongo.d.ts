@@ -10,13 +10,20 @@ export interface DBMongoEnvironment {
     fsmManager: FSM.FsmManager;
     storageManager: Storage.StorageManager;
 }
+declare class FsmAPIWatch extends FSM.Fsm {
+    constructor(env: DBMongoEnvironment);
+    readonly env: DBMongoEnvironment;
+    tick(): void;
+}
 export declare class MongoClient extends DB.DBClient {
     mdbclient: MDB.MongoClient;
     serializerUpdate: FSM.FsmSerializer;
+    fsmAPIWatch: FsmAPIWatch;
     constructor(env: DBMongoEnvironment);
     readonly env: DBMongoEnvironment;
     readonly Production: boolean;
     readonly InstanceUrl: string;
+    readonly DBName: string;
     readonly UserName: string;
     readonly Password: string;
     readonly mongoErrorFrequency: number;
@@ -70,6 +77,7 @@ export declare class MongoFind extends DB.DBFind {
 export declare class MongoQuery extends DB.DBQuery {
     cursor: MDB.Cursor;
     trace: LogAbstract.AsyncTimer;
+    bError: boolean;
     constructor(env: DBMongoEnvironment, col: MongoCollection, filter: any);
     readonly env: DBMongoEnvironment;
     forceError(): boolean;
@@ -84,3 +92,4 @@ export declare class MongoIndex extends DB.DBIndex {
 export declare class MongoClose extends DB.DBClose {
     constructor(env: DBMongoEnvironment, client: MongoClient);
 }
+export {};

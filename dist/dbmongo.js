@@ -158,48 +158,73 @@ function toDBExternal(o) {
     }
     return o;
 }
+class FsmAPIWatch extends FSM.Fsm {
+    constructor(env) {
+        super(env);
+    }
+    get env() { return this._env; }
+    tick() {
+        this.env.log.value({ event: 'mongodb: APIs outstanding', value: this.nWaitOn });
+    }
+}
 class MongoClient extends DB.DBClient {
     constructor(env) {
         super(env);
         env.context.setDefaults(DBMongoContextDefaults);
         this.mdbclient = null;
         this.serializerUpdate = new FSM.FsmSerializer(env);
+        this.fsmAPIWatch = new FsmAPIWatch(env);
     }
     get env() { return this._env; }
     get Production() { return this.env.context.xflag('production'); }
-    get InstanceUrl() { return this.env.context.xstring('aws_mongodb_uri') + (this.Production ? '/prod' : '/dev'); }
+    get InstanceUrl() { return `${this.env.context.xstring('aws_mongodb_uri')}/${this.DBName}`; }
+    get DBName() { return this.Production ? 'prod' : 'dev'; }
     get UserName() { return this.env.context.xstring('aws_mongodb_username'); }
     get Password() { return this.env.context.xstring('aws_mongodb_password'); }
     get mongoErrorFrequency() { return this.env.context.xnumber('mongo_error_frequency'); }
     createCollection(name, options) {
-        return new MongoCollection(this.env, this, name, options);
+        let col = new MongoCollection(this.env, this, name, options);
+        this.fsmAPIWatch.waitOn(col);
+        return col;
     }
     createUpdate(col, query, values) {
         let update = new MongoUpdate(this.env, col, query, values);
         if (query && query.id)
             this.serializerUpdate.serialize(query.id, update);
+        this.fsmAPIWatch.waitOn(update);
         return update;
     }
     createUnset(col, query, values) {
         let unset = new MongoUnset(this.env, col, query, values);
         if (query && query.id)
             this.serializerUpdate.serialize(query.id, unset);
+        this.fsmAPIWatch.waitOn(unset);
         return unset;
     }
     createDelete(col, query) {
-        return new MongoDelete(this.env, col, query);
+        let del = new MongoDelete(this.env, col, query);
+        this.fsmAPIWatch.waitOn(del);
+        return del;
     }
     createFind(col, filter) {
-        return new MongoFind(this.env, col, filter);
+        let find = new MongoFind(this.env, col, filter);
+        this.fsmAPIWatch.waitOn(find);
+        return find;
     }
     createQuery(col, filter) {
-        return new MongoQuery(this.env, col, filter);
+        let query = new MongoQuery(this.env, col, filter);
+        this.fsmAPIWatch.waitOn(query);
+        return query;
     }
     createIndex(col, uid) {
-        return new MongoIndex(this.env, col, uid);
+        let index = new MongoIndex(this.env, col, uid);
+        this.fsmAPIWatch.waitOn(index);
+        return index;
     }
     createClose() {
-        return new MongoClose(this.env, this);
+        let dbclose = new MongoClose(this.env, this);
+        this.fsmAPIWatch.waitOn(dbclose);
+        return dbclose;
     }
     forceError() {
         if (!this.Production && (Math.random() < this.mongoErrorFrequency))
@@ -210,7 +235,12 @@ class MongoClient extends DB.DBClient {
         if (this.ready && this.state == FSM.FSM_STARTING) {
             this.setState(FSM.FSM_PENDING);
             let sslCA = readPem();
-            let mdbOptions = { auth: { user: this.UserName, password: this.Password }, ssl: true, sslCA: sslCA, useNewUrlParser: true };
+            let mdbOptions = {
+                auth: { user: this.UserName, password: this.Password },
+                ssl: true,
+                sslCA: sslCA,
+                useNewUrlParser: true,
+            };
             let localClient = new MDB.MongoClient(this.InstanceUrl, mdbOptions);
             this.env.log.event({ event: 'mongodb: connecting to database', detail: this.InstanceUrl });
             localClient.connect((err, client) => {
@@ -307,7 +337,7 @@ class MongoUpdate extends DB.DBUpdate {
     constructor(env, col, query, values) {
         super(env, col, toDBInternal(query), toDBInternal(values));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update in ${col.name}`, 1);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: update(col=${col.name})`);
     }
     get env() { return this._env; }
     forceError() {
@@ -348,7 +378,7 @@ class MongoUnset extends DB.DBUnset {
     constructor(env, col, query, values) {
         super(env, col, toDBInternal(query), toDBInternal(values));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: unset in ${col.name}`, 1);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: unset(col=${col.name})`);
     }
     get env() { return this._env; }
     forceError() {
@@ -389,7 +419,7 @@ class MongoDelete extends DB.DBDelete {
     constructor(env, col, query) {
         super(env, col, toDBInternal(query));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete in ${col.name}`, 1);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: delete(col=${col.name})`);
     }
     get env() { return this._env; }
     forceError() {
@@ -430,7 +460,7 @@ class MongoFind extends DB.DBFind {
     constructor(env, col, filter) {
         super(env, col, toDBInternal(filter));
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find in ${col.name}`, 1);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: find(col=${col.name})`);
         this.prevFind = null;
     }
     get env() { return this._env; }
@@ -473,7 +503,7 @@ class MongoQuery extends DB.DBQuery {
         super(env, col, toDBInternal(filter));
         this.waitOn(col);
         this.cursor = null;
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query in ${col.name}`, 1);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: query(col=${col.name})`);
         if (this.env.context.xnumber('verbosity'))
             this.env.log.event({ event: 'mongodb: query in ${col.name}', detail: JSON.stringify(filter) });
     }
@@ -507,7 +537,8 @@ class MongoQuery extends DB.DBQuery {
                     if (this.done)
                         return;
                     else if (err) {
-                        this.setState(FSM.FSM_ERROR | DB.FSM_NEEDRELEASE);
+                        this.bError = true;
+                        this.setState(DB.FSM_NEEDRELEASE);
                         this.trace.log();
                         this.env.log.error({ event: 'mongodb: cursor.next', detail: err.errmsg });
                     }
@@ -516,20 +547,20 @@ class MongoQuery extends DB.DBQuery {
                         this.setState(FSM.FSM_PENDING);
                     }
                     else {
-                        this.setState(FSM.FSM_DONE | DB.FSM_NEEDRELEASE);
+                        this.setState(DB.FSM_NEEDRELEASE);
                         this.trace.log();
-                        if (this.env.context.xnumber('verbosity')) {
+                        if (this.env.context.xflag('verbosity')) {
                             for (let i = 0; i < this.result.length; i++)
                                 this.env.log.event(`mongodb: mongodb: query: ${i}: ${JSON.stringify(this.result[i])}`);
                         }
                     }
                 });
             }
-            if (this.state & DB.FSM_NEEDRELEASE) {
-                this.setState((this.state & ~DB.FSM_NEEDRELEASE) | DB.FSM_RELEASING);
+            if (this.state === DB.FSM_NEEDRELEASE) {
+                this.setState(DB.FSM_RELEASING);
                 this.cursor.close((err) => {
                     this.cursor = null;
-                    this.state &= ~DB.FSM_RELEASING;
+                    this.setState(this.bError ? FSM.FSM_ERROR : FSM.FSM_DONE);
                 });
             }
         }
@@ -540,7 +571,7 @@ class MongoIndex extends DB.DBIndex {
     constructor(env, col, uid) {
         super(env, col, uid);
         this.waitOn(col);
-        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index in ${col.name}`, 1);
+        this.trace = new LogAbstract.AsyncTimer(env.log, `mongodb: index(col=${col.name})`);
     }
     get env() { return this._env; }
     tick() {
