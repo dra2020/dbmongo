@@ -1,6 +1,6 @@
 {
   "name": "@dra2020/dbmongo",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "AWS Mongo-based implementation of database abstraction.",
   "main": "dist/dbmongo.js",
   "types": "./dist/all.d.ts",
