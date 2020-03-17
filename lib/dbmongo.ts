@@ -71,6 +71,8 @@ class FsmAPIWatch extends FSM.Fsm
   }
 }
 
+export function create(env: DBMongoEnvironment): DB.DBClient { return new MongoClient(env) }
+
 export class MongoClient extends DB.DBClient
 {
   mdbclient: MDB.MongoClient;
@@ -100,6 +102,16 @@ export class MongoClient extends DB.DBClient
     let col = new MongoCollection(this.env, this, name, options);
     this.fsmAPIWatch.waitOn(col);
     return col;
+  }
+
+  createStream(col: MongoCollection): FSM.FsmArray
+  {
+    return col.createStream();
+  }
+
+  closeStream(col: MongoCollection): void
+  {
+    col.closeStream();
   }
 
   createUpdate(col: MongoCollection, query: any, values: any): DB.DBUpdate
@@ -206,16 +218,64 @@ export class MongoClient extends DB.DBClient
   }
 }
 
+class KeySet implements FSM.ISet
+{
+  set: any;
+
+  constructor()
+  {
+    this.reset();
+  }
+
+  reset(): void
+  {
+    this.set = {};
+  }
+
+  test(o: any): boolean
+  {
+    if (o._id === undefined) return true;
+    let b: boolean = this.set[o._id] !== undefined;
+    this.set[o._id] = true;
+    return b;
+  }
+}
+
 export class MongoCollection extends DB.DBCollection
 {
+  fsmStream: FSM.FsmArray;
+
   constructor(env: DBMongoEnvironment, client: MongoClient, name: string, options: any)
     {
       super(env, client, name, options);
       this.waitOn(client);
       this.col = null;
+      this.fsmStream = null;
     }
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
+
+  createStream(): FSM.FsmArray
+  {
+    if (this.fsmStream == null)
+      this.fsmStream = new FSM.FsmArray(this.env, new KeySet());
+    return this.fsmStream;
+  }
+
+  closeStream(): void
+  {
+    if (this.fsmStream)
+    {
+      this.fsmStream.setState(FSM.FSM_DONE);
+      this.fsmStream = null;
+    }
+  }
+
+  addToStream(o: any): void
+  {
+    if (this.fsmStream && o.id !== undefined)
+      this.fsmStream.push(o);
+  }
 
   mdbclient(): MDB.MongoClient
     {
@@ -301,6 +361,7 @@ export class MongoUpdate extends DB.DBUpdate
     }
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
+  get mcol(): MongoCollection { return this.col as MongoCollection }
 
   forceError(): boolean
     {
@@ -322,6 +383,7 @@ export class MongoUpdate extends DB.DBUpdate
         {
           this.setState(FSM.FSM_PENDING);
           this.col.col.updateOne(this.query, { $set: this.values }, { upsert: true }, (err: MDB.MongoError, result: any) => {
+              this.mcol.addToStream(this.query);
               if (this.done)
                 return;
               else if (err)
@@ -356,6 +418,7 @@ export class MongoUnset extends DB.DBUnset
     }
 
   get env(): DBMongoEnvironment { return this._env as DBMongoEnvironment; }
+  get mcol(): MongoCollection { return this.col as MongoCollection }
 
   forceError(): boolean
     {
@@ -377,6 +440,7 @@ export class MongoUnset extends DB.DBUnset
         {
           this.setState(FSM.FSM_PENDING);
           this.col.col.updateOne(this.query, { $unset: this.values }, (err: MDB.MongoError, result: any) => {
+              this.mcol.addToStream(this.query);
               if (this.done)
                 return;
               else if (err)
@@ -576,7 +640,7 @@ export class MongoQuery extends DB.DBQuery
               }
               else if (result)
               {
-                this.result.push(toDBExternal(result));
+                this.fsmResult.push(toDBExternal(result));
                 this.setState(FSM.FSM_PENDING);
               }
               else
