@@ -604,6 +604,7 @@ class MongoQuery extends DB.DBQuery {
                 this.cursor.close((err) => {
                     this.cursor = null;
                     this.setState(this.bError ? FSM.FSM_ERROR : FSM.FSM_DONE);
+                    this.fsmResult.setState(this.state);
                 });
             }
         }
@@ -647,401 +648,6 @@ class MongoClose extends DB.DBClose {
     }
 }
 exports.MongoClose = MongoClose;
-
-
-/***/ }),
-
-/***/ "./node_modules/bl/bl.js":
-/*!*******************************!*\
-  !*** ./node_modules/bl/bl.js ***!
-  \*******************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-var DuplexStream = __webpack_require__(/*! readable-stream */ "./node_modules/readable-stream/readable.js").Duplex
-  , util         = __webpack_require__(/*! util */ "util")
-  , Buffer       = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer
-
-function BufferList (callback) {
-  if (!(this instanceof BufferList))
-    return new BufferList(callback)
-
-  this._bufs  = []
-  this.length = 0
-
-  if (typeof callback == 'function') {
-    this._callback = callback
-
-    var piper = function piper (err) {
-      if (this._callback) {
-        this._callback(err)
-        this._callback = null
-      }
-    }.bind(this)
-
-    this.on('pipe', function onPipe (src) {
-      src.on('error', piper)
-    })
-    this.on('unpipe', function onUnpipe (src) {
-      src.removeListener('error', piper)
-    })
-  } else {
-    this.append(callback)
-  }
-
-  DuplexStream.call(this)
-}
-
-
-util.inherits(BufferList, DuplexStream)
-
-
-BufferList.prototype._offset = function _offset (offset) {
-  var tot = 0, i = 0, _t
-  if (offset === 0) return [ 0, 0 ]
-  for (; i < this._bufs.length; i++) {
-    _t = tot + this._bufs[i].length
-    if (offset < _t || i == this._bufs.length - 1) {
-      return [ i, offset - tot ]
-    }
-    tot = _t
-  }
-}
-
-BufferList.prototype._reverseOffset = function (blOffset) {
-  var bufferId = blOffset[0]
-  var offset = blOffset[1]
-  for (var i = 0; i < bufferId; i++) {
-    offset += this._bufs[i].length
-  }
-  return offset
-}
-
-BufferList.prototype.append = function append (buf) {
-  var i = 0
-
-  if (Buffer.isBuffer(buf)) {
-    this._appendBuffer(buf)
-  } else if (Array.isArray(buf)) {
-    for (; i < buf.length; i++)
-      this.append(buf[i])
-  } else if (buf instanceof BufferList) {
-    // unwrap argument into individual BufferLists
-    for (; i < buf._bufs.length; i++)
-      this.append(buf._bufs[i])
-  } else if (buf != null) {
-    // coerce number arguments to strings, since Buffer(number) does
-    // uninitialized memory allocation
-    if (typeof buf == 'number')
-      buf = buf.toString()
-
-    this._appendBuffer(Buffer.from(buf))
-  }
-
-  return this
-}
-
-
-BufferList.prototype._appendBuffer = function appendBuffer (buf) {
-  this._bufs.push(buf)
-  this.length += buf.length
-}
-
-
-BufferList.prototype._write = function _write (buf, encoding, callback) {
-  this._appendBuffer(buf)
-
-  if (typeof callback == 'function')
-    callback()
-}
-
-
-BufferList.prototype._read = function _read (size) {
-  if (!this.length)
-    return this.push(null)
-
-  size = Math.min(size, this.length)
-  this.push(this.slice(0, size))
-  this.consume(size)
-}
-
-
-BufferList.prototype.end = function end (chunk) {
-  DuplexStream.prototype.end.call(this, chunk)
-
-  if (this._callback) {
-    this._callback(null, this.slice())
-    this._callback = null
-  }
-}
-
-
-BufferList.prototype.get = function get (index) {
-  if (index > this.length || index < 0) {
-    return undefined
-  }
-  var offset = this._offset(index)
-  return this._bufs[offset[0]][offset[1]]
-}
-
-
-BufferList.prototype.slice = function slice (start, end) {
-  if (typeof start == 'number' && start < 0)
-    start += this.length
-  if (typeof end == 'number' && end < 0)
-    end += this.length
-  return this.copy(null, 0, start, end)
-}
-
-
-BufferList.prototype.copy = function copy (dst, dstStart, srcStart, srcEnd) {
-  if (typeof srcStart != 'number' || srcStart < 0)
-    srcStart = 0
-  if (typeof srcEnd != 'number' || srcEnd > this.length)
-    srcEnd = this.length
-  if (srcStart >= this.length)
-    return dst || Buffer.alloc(0)
-  if (srcEnd <= 0)
-    return dst || Buffer.alloc(0)
-
-  var copy   = !!dst
-    , off    = this._offset(srcStart)
-    , len    = srcEnd - srcStart
-    , bytes  = len
-    , bufoff = (copy && dstStart) || 0
-    , start  = off[1]
-    , l
-    , i
-
-  // copy/slice everything
-  if (srcStart === 0 && srcEnd == this.length) {
-    if (!copy) { // slice, but full concat if multiple buffers
-      return this._bufs.length === 1
-        ? this._bufs[0]
-        : Buffer.concat(this._bufs, this.length)
-    }
-
-    // copy, need to copy individual buffers
-    for (i = 0; i < this._bufs.length; i++) {
-      this._bufs[i].copy(dst, bufoff)
-      bufoff += this._bufs[i].length
-    }
-
-    return dst
-  }
-
-  // easy, cheap case where it's a subset of one of the buffers
-  if (bytes <= this._bufs[off[0]].length - start) {
-    return copy
-      ? this._bufs[off[0]].copy(dst, dstStart, start, start + bytes)
-      : this._bufs[off[0]].slice(start, start + bytes)
-  }
-
-  if (!copy) // a slice, we need something to copy in to
-    dst = Buffer.allocUnsafe(len)
-
-  for (i = off[0]; i < this._bufs.length; i++) {
-    l = this._bufs[i].length - start
-
-    if (bytes > l) {
-      this._bufs[i].copy(dst, bufoff, start)
-    } else {
-      this._bufs[i].copy(dst, bufoff, start, start + bytes)
-      break
-    }
-
-    bufoff += l
-    bytes -= l
-
-    if (start)
-      start = 0
-  }
-
-  return dst
-}
-
-BufferList.prototype.shallowSlice = function shallowSlice (start, end) {
-  start = start || 0
-  end = typeof end !== 'number' ? this.length : end
-
-  if (start < 0)
-    start += this.length
-  if (end < 0)
-    end += this.length
-
-  if (start === end) {
-    return new BufferList()
-  }
-  var startOffset = this._offset(start)
-    , endOffset = this._offset(end)
-    , buffers = this._bufs.slice(startOffset[0], endOffset[0] + 1)
-
-  if (endOffset[1] == 0)
-    buffers.pop()
-  else
-    buffers[buffers.length-1] = buffers[buffers.length-1].slice(0, endOffset[1])
-
-  if (startOffset[1] != 0)
-    buffers[0] = buffers[0].slice(startOffset[1])
-
-  return new BufferList(buffers)
-}
-
-BufferList.prototype.toString = function toString (encoding, start, end) {
-  return this.slice(start, end).toString(encoding)
-}
-
-BufferList.prototype.consume = function consume (bytes) {
-  while (this._bufs.length) {
-    if (bytes >= this._bufs[0].length) {
-      bytes -= this._bufs[0].length
-      this.length -= this._bufs[0].length
-      this._bufs.shift()
-    } else {
-      this._bufs[0] = this._bufs[0].slice(bytes)
-      this.length -= bytes
-      break
-    }
-  }
-  return this
-}
-
-
-BufferList.prototype.duplicate = function duplicate () {
-  var i = 0
-    , copy = new BufferList()
-
-  for (; i < this._bufs.length; i++)
-    copy.append(this._bufs[i])
-
-  return copy
-}
-
-
-BufferList.prototype.destroy = function destroy () {
-  this._bufs.length = 0
-  this.length = 0
-  this.push(null)
-}
-
-
-BufferList.prototype.indexOf = function (search, offset, encoding) {
-  if (encoding === undefined && typeof offset === 'string') {
-    encoding = offset
-    offset = undefined
-  }
-  if (typeof search === 'function' || Array.isArray(search)) {
-    throw new TypeError('The "value" argument must be one of type string, Buffer, BufferList, or Uint8Array.')
-  } else if (typeof search === 'number') {
-      search = Buffer.from([search])
-  } else if (typeof search === 'string') {
-    search = Buffer.from(search, encoding)
-  } else if (search instanceof BufferList) {
-    search = search.slice()
-  } else if (!Buffer.isBuffer(search)) {
-    search = Buffer.from(search)
-  }
-
-  offset = Number(offset || 0)
-  if (isNaN(offset)) {
-    offset = 0
-  }
-
-  if (offset < 0) {
-    offset = this.length + offset
-  }
-
-  if (offset < 0) {
-    offset = 0
-  }
-
-  if (search.length === 0) {
-    return offset > this.length ? this.length : offset
-  }
-
-  var blOffset = this._offset(offset)
-  var blIndex = blOffset[0] // index of which internal buffer we're working on
-  var buffOffset = blOffset[1] // offset of the internal buffer we're working on
-
-  // scan over each buffer
-  for (blIndex; blIndex < this._bufs.length; blIndex++) {
-    var buff = this._bufs[blIndex]
-    while(buffOffset < buff.length) {
-      var availableWindow = buff.length - buffOffset
-      if (availableWindow >= search.length) {
-        var nativeSearchResult = buff.indexOf(search, buffOffset)
-        if (nativeSearchResult !== -1) {
-          return this._reverseOffset([blIndex, nativeSearchResult])
-        }
-        buffOffset = buff.length - search.length + 1 // end of native search window
-      } else {
-        var revOffset = this._reverseOffset([blIndex, buffOffset])
-        if (this._match(revOffset, search)) {
-          return revOffset
-        }
-        buffOffset++
-      }
-    }
-    buffOffset = 0
-  }
-  return -1
-}
-
-BufferList.prototype._match = function(offset, search) {
-  if (this.length - offset < search.length) {
-    return false
-  }
-  for (var searchOffset = 0; searchOffset < search.length ; searchOffset++) {
-    if(this.get(offset + searchOffset) !== search[searchOffset]){
-      return false
-    }
-  }
-  return true
-}
-
-
-;(function () {
-  var methods = {
-      'readDoubleBE' : 8
-    , 'readDoubleLE' : 8
-    , 'readFloatBE'  : 4
-    , 'readFloatLE'  : 4
-    , 'readInt32BE'  : 4
-    , 'readInt32LE'  : 4
-    , 'readUInt32BE' : 4
-    , 'readUInt32LE' : 4
-    , 'readInt16BE'  : 2
-    , 'readInt16LE'  : 2
-    , 'readUInt16BE' : 2
-    , 'readUInt16LE' : 2
-    , 'readInt8'     : 1
-    , 'readUInt8'    : 1
-    , 'readIntBE'    : null
-    , 'readIntLE'    : null
-    , 'readUIntBE'   : null
-    , 'readUIntLE'   : null
-  }
-
-  for (var m in methods) {
-    (function (m) {
-      if (methods[m] === null) {
-        BufferList.prototype[m] = function (offset, byteLength) {
-          return this.slice(offset, offset + byteLength)[m](0, byteLength)
-        }
-      }
-      else {
-        BufferList.prototype[m] = function (offset) {
-          return this.slice(offset, offset + methods[m])[m](0)
-        }
-      }
-    }(m))
-  }
-}())
-
-
-module.exports = BufferList
 
 
 /***/ }),
@@ -7746,812 +7352,6 @@ module.exports.Timestamp = Timestamp;
 
 /***/ }),
 
-/***/ "./node_modules/core-util-is/lib/util.js":
-/*!***********************************************!*\
-  !*** ./node_modules/core-util-is/lib/util.js ***!
-  \***********************************************/
-/*! no static exports found */
-/***/ (function(module, exports) {
-
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// NOTE: These type checking functions intentionally don't use `instanceof`
-// because it is fragile and can be easily faked with `Object.create()`.
-
-function isArray(arg) {
-  if (Array.isArray) {
-    return Array.isArray(arg);
-  }
-  return objectToString(arg) === '[object Array]';
-}
-exports.isArray = isArray;
-
-function isBoolean(arg) {
-  return typeof arg === 'boolean';
-}
-exports.isBoolean = isBoolean;
-
-function isNull(arg) {
-  return arg === null;
-}
-exports.isNull = isNull;
-
-function isNullOrUndefined(arg) {
-  return arg == null;
-}
-exports.isNullOrUndefined = isNullOrUndefined;
-
-function isNumber(arg) {
-  return typeof arg === 'number';
-}
-exports.isNumber = isNumber;
-
-function isString(arg) {
-  return typeof arg === 'string';
-}
-exports.isString = isString;
-
-function isSymbol(arg) {
-  return typeof arg === 'symbol';
-}
-exports.isSymbol = isSymbol;
-
-function isUndefined(arg) {
-  return arg === void 0;
-}
-exports.isUndefined = isUndefined;
-
-function isRegExp(re) {
-  return objectToString(re) === '[object RegExp]';
-}
-exports.isRegExp = isRegExp;
-
-function isObject(arg) {
-  return typeof arg === 'object' && arg !== null;
-}
-exports.isObject = isObject;
-
-function isDate(d) {
-  return objectToString(d) === '[object Date]';
-}
-exports.isDate = isDate;
-
-function isError(e) {
-  return (objectToString(e) === '[object Error]' || e instanceof Error);
-}
-exports.isError = isError;
-
-function isFunction(arg) {
-  return typeof arg === 'function';
-}
-exports.isFunction = isFunction;
-
-function isPrimitive(arg) {
-  return arg === null ||
-         typeof arg === 'boolean' ||
-         typeof arg === 'number' ||
-         typeof arg === 'string' ||
-         typeof arg === 'symbol' ||  // ES6 symbol
-         typeof arg === 'undefined';
-}
-exports.isPrimitive = isPrimitive;
-
-exports.isBuffer = Buffer.isBuffer;
-
-function objectToString(o) {
-  return Object.prototype.toString.call(o);
-}
-
-
-/***/ }),
-
-/***/ "./node_modules/denque/index.js":
-/*!**************************************!*\
-  !*** ./node_modules/denque/index.js ***!
-  \**************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-/**
- * Custom implementation of a double ended queue.
- */
-function Denque(array) {
-  this._head = 0;
-  this._tail = 0;
-  this._capacityMask = 0x3;
-  this._list = new Array(4);
-  if (Array.isArray(array)) {
-    this._fromArray(array);
-  }
-}
-
-/**
- * -------------
- *  PUBLIC API
- * -------------
- */
-
-/**
- * Returns the item at the specified index from the list.
- * 0 is the first element, 1 is the second, and so on...
- * Elements at negative values are that many from the end: -1 is one before the end
- * (the last element), -2 is two before the end (one before last), etc.
- * @param index
- * @returns {*}
- */
-Denque.prototype.peekAt = function peekAt(index) {
-  var i = index;
-  // expect a number or return undefined
-  if ((i !== (i | 0))) {
-    return void 0;
-  }
-  var len = this.size();
-  if (i >= len || i < -len) return undefined;
-  if (i < 0) i += len;
-  i = (this._head + i) & this._capacityMask;
-  return this._list[i];
-};
-
-/**
- * Alias for peakAt()
- * @param i
- * @returns {*}
- */
-Denque.prototype.get = function get(i) {
-  return this.peekAt(i);
-};
-
-/**
- * Returns the first item in the list without removing it.
- * @returns {*}
- */
-Denque.prototype.peek = function peek() {
-  if (this._head === this._tail) return undefined;
-  return this._list[this._head];
-};
-
-/**
- * Alias for peek()
- * @returns {*}
- */
-Denque.prototype.peekFront = function peekFront() {
-  return this.peek();
-};
-
-/**
- * Returns the item that is at the back of the queue without removing it.
- * Uses peekAt(-1)
- */
-Denque.prototype.peekBack = function peekBack() {
-  return this.peekAt(-1);
-};
-
-/**
- * Returns the current length of the queue
- * @return {Number}
- */
-Object.defineProperty(Denque.prototype, 'length', {
-  get: function length() {
-    return this.size();
-  }
-});
-
-/**
- * Return the number of items on the list, or 0 if empty.
- * @returns {number}
- */
-Denque.prototype.size = function size() {
-  if (this._head === this._tail) return 0;
-  if (this._head < this._tail) return this._tail - this._head;
-  else return this._capacityMask + 1 - (this._head - this._tail);
-};
-
-/**
- * Add an item at the beginning of the list.
- * @param item
- */
-Denque.prototype.unshift = function unshift(item) {
-  if (item === undefined) return this.size();
-  var len = this._list.length;
-  this._head = (this._head - 1 + len) & this._capacityMask;
-  this._list[this._head] = item;
-  if (this._tail === this._head) this._growArray();
-  if (this._head < this._tail) return this._tail - this._head;
-  else return this._capacityMask + 1 - (this._head - this._tail);
-};
-
-/**
- * Remove and return the first item on the list,
- * Returns undefined if the list is empty.
- * @returns {*}
- */
-Denque.prototype.shift = function shift() {
-  var head = this._head;
-  if (head === this._tail) return undefined;
-  var item = this._list[head];
-  this._list[head] = undefined;
-  this._head = (head + 1) & this._capacityMask;
-  if (head < 2 && this._tail > 10000 && this._tail <= this._list.length >>> 2) this._shrinkArray();
-  return item;
-};
-
-/**
- * Add an item to the bottom of the list.
- * @param item
- */
-Denque.prototype.push = function push(item) {
-  if (item === undefined) return this.size();
-  var tail = this._tail;
-  this._list[tail] = item;
-  this._tail = (tail + 1) & this._capacityMask;
-  if (this._tail === this._head) {
-    this._growArray();
-  }
-
-  if (this._head < this._tail) return this._tail - this._head;
-  else return this._capacityMask + 1 - (this._head - this._tail);
-};
-
-/**
- * Remove and return the last item on the list.
- * Returns undefined if the list is empty.
- * @returns {*}
- */
-Denque.prototype.pop = function pop() {
-  var tail = this._tail;
-  if (tail === this._head) return undefined;
-  var len = this._list.length;
-  this._tail = (tail - 1 + len) & this._capacityMask;
-  var item = this._list[this._tail];
-  this._list[this._tail] = undefined;
-  if (this._head < 2 && tail > 10000 && tail <= len >>> 2) this._shrinkArray();
-  return item;
-};
-
-/**
- * Remove and return the item at the specified index from the list.
- * Returns undefined if the list is empty.
- * @param index
- * @returns {*}
- */
-Denque.prototype.removeOne = function removeOne(index) {
-  var i = index;
-  // expect a number or return undefined
-  if ((i !== (i | 0))) {
-    return void 0;
-  }
-  if (this._head === this._tail) return void 0;
-  var size = this.size();
-  var len = this._list.length;
-  if (i >= size || i < -size) return void 0;
-  if (i < 0) i += size;
-  i = (this._head + i) & this._capacityMask;
-  var item = this._list[i];
-  var k;
-  if (index < size / 2) {
-    for (k = index; k > 0; k--) {
-      this._list[i] = this._list[i = (i - 1 + len) & this._capacityMask];
-    }
-    this._list[i] = void 0;
-    this._head = (this._head + 1 + len) & this._capacityMask;
-  } else {
-    for (k = size - 1 - index; k > 0; k--) {
-      this._list[i] = this._list[i = ( i + 1 + len) & this._capacityMask];
-    }
-    this._list[i] = void 0;
-    this._tail = (this._tail - 1 + len) & this._capacityMask;
-  }
-  return item;
-};
-
-/**
- * Remove number of items from the specified index from the list.
- * Returns array of removed items.
- * Returns undefined if the list is empty.
- * @param index
- * @param count
- * @returns {array}
- */
-Denque.prototype.remove = function remove(index, count) {
-  var i = index;
-  var removed;
-  var del_count = count;
-  // expect a number or return undefined
-  if ((i !== (i | 0))) {
-    return void 0;
-  }
-  if (this._head === this._tail) return void 0;
-  var size = this.size();
-  var len = this._list.length;
-  if (i >= size || i < -size || count < 1) return void 0;
-  if (i < 0) i += size;
-  if (count === 1 || !count) {
-    removed = new Array(1);
-    removed[0] = this.removeOne(i);
-    return removed;
-  }
-  if (i === 0 && i + count >= size) {
-    removed = this.toArray();
-    this.clear();
-    return removed;
-  }
-  if (i + count > size) count = size - i;
-  var k;
-  removed = new Array(count);
-  for (k = 0; k < count; k++) {
-    removed[k] = this._list[(this._head + i + k) & this._capacityMask];
-  }
-  i = (this._head + i) & this._capacityMask;
-  if (index + count === size) {
-    this._tail = (this._tail - count + len) & this._capacityMask;
-    for (k = count; k > 0; k--) {
-      this._list[i = (i + 1 + len) & this._capacityMask] = void 0;
-    }
-    return removed;
-  }
-  if (index === 0) {
-    this._head = (this._head + count + len) & this._capacityMask;
-    for (k = count - 1; k > 0; k--) {
-      this._list[i = (i + 1 + len) & this._capacityMask] = void 0;
-    }
-    return removed;
-  }
-  if (i < size / 2) {
-    this._head = (this._head + index + count + len) & this._capacityMask;
-    for (k = index; k > 0; k--) {
-      this.unshift(this._list[i = (i - 1 + len) & this._capacityMask]);
-    }
-    i = (this._head - 1 + len) & this._capacityMask;
-    while (del_count > 0) {
-      this._list[i = (i - 1 + len) & this._capacityMask] = void 0;
-      del_count--;
-    }
-    if (index < 0) this._tail = i;
-  } else {
-    this._tail = i;
-    i = (i + count + len) & this._capacityMask;
-    for (k = size - (count + index); k > 0; k--) {
-      this.push(this._list[i++]);
-    }
-    i = this._tail;
-    while (del_count > 0) {
-      this._list[i = (i + 1 + len) & this._capacityMask] = void 0;
-      del_count--;
-    }
-  }
-  if (this._head < 2 && this._tail > 10000 && this._tail <= len >>> 2) this._shrinkArray();
-  return removed;
-};
-
-/**
- * Native splice implementation.
- * Remove number of items from the specified index from the list and/or add new elements.
- * Returns array of removed items or empty array if count == 0.
- * Returns undefined if the list is empty.
- *
- * @param index
- * @param count
- * @param {...*} [elements]
- * @returns {array}
- */
-Denque.prototype.splice = function splice(index, count) {
-  var i = index;
-  // expect a number or return undefined
-  if ((i !== (i | 0))) {
-    return void 0;
-  }
-  var size = this.size();
-  if (i < 0) i += size;
-  if (i > size) return void 0;
-  if (arguments.length > 2) {
-    var k;
-    var temp;
-    var removed;
-    var arg_len = arguments.length;
-    var len = this._list.length;
-    var arguments_index = 2;
-    if (!size || i < size / 2) {
-      temp = new Array(i);
-      for (k = 0; k < i; k++) {
-        temp[k] = this._list[(this._head + k) & this._capacityMask];
-      }
-      if (count === 0) {
-        removed = [];
-        if (i > 0) {
-          this._head = (this._head + i + len) & this._capacityMask;
-        }
-      } else {
-        removed = this.remove(i, count);
-        this._head = (this._head + i + len) & this._capacityMask;
-      }
-      while (arg_len > arguments_index) {
-        this.unshift(arguments[--arg_len]);
-      }
-      for (k = i; k > 0; k--) {
-        this.unshift(temp[k - 1]);
-      }
-    } else {
-      temp = new Array(size - (i + count));
-      var leng = temp.length;
-      for (k = 0; k < leng; k++) {
-        temp[k] = this._list[(this._head + i + count + k) & this._capacityMask];
-      }
-      if (count === 0) {
-        removed = [];
-        if (i != size) {
-          this._tail = (this._head + i + len) & this._capacityMask;
-        }
-      } else {
-        removed = this.remove(i, count);
-        this._tail = (this._tail - leng + len) & this._capacityMask;
-      }
-      while (arguments_index < arg_len) {
-        this.push(arguments[arguments_index++]);
-      }
-      for (k = 0; k < leng; k++) {
-        this.push(temp[k]);
-      }
-    }
-    return removed;
-  } else {
-    return this.remove(i, count);
-  }
-};
-
-/**
- * Soft clear - does not reset capacity.
- */
-Denque.prototype.clear = function clear() {
-  this._head = 0;
-  this._tail = 0;
-};
-
-/**
- * Returns true or false whether the list is empty.
- * @returns {boolean}
- */
-Denque.prototype.isEmpty = function isEmpty() {
-  return this._head === this._tail;
-};
-
-/**
- * Returns an array of all queue items.
- * @returns {Array}
- */
-Denque.prototype.toArray = function toArray() {
-  return this._copyArray(false);
-};
-
-/**
- * -------------
- *   INTERNALS
- * -------------
- */
-
-/**
- * Fills the queue with items from an array
- * For use in the constructor
- * @param array
- * @private
- */
-Denque.prototype._fromArray = function _fromArray(array) {
-  for (var i = 0; i < array.length; i++) this.push(array[i]);
-};
-
-/**
- *
- * @param fullCopy
- * @returns {Array}
- * @private
- */
-Denque.prototype._copyArray = function _copyArray(fullCopy) {
-  var newArray = [];
-  var list = this._list;
-  var len = list.length;
-  var i;
-  if (fullCopy || this._head > this._tail) {
-    for (i = this._head; i < len; i++) newArray.push(list[i]);
-    for (i = 0; i < this._tail; i++) newArray.push(list[i]);
-  } else {
-    for (i = this._head; i < this._tail; i++) newArray.push(list[i]);
-  }
-  return newArray;
-};
-
-/**
- * Grows the internal list array.
- * @private
- */
-Denque.prototype._growArray = function _growArray() {
-  if (this._head) {
-    // copy existing data, head to end, then beginning to tail.
-    this._list = this._copyArray(true);
-    this._head = 0;
-  }
-
-  // head is at 0 and array is now full, safe to extend
-  this._tail = this._list.length;
-
-  this._list.length *= 2;
-  this._capacityMask = (this._capacityMask << 1) | 1;
-};
-
-/**
- * Shrinks the internal list array.
- * @private
- */
-Denque.prototype._shrinkArray = function _shrinkArray() {
-  this._list.length >>>= 1;
-  this._capacityMask >>>= 1;
-};
-
-
-module.exports = Denque;
-
-
-/***/ }),
-
-/***/ "./node_modules/inherits/inherits.js":
-/*!*******************************************!*\
-  !*** ./node_modules/inherits/inherits.js ***!
-  \*******************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-try {
-  var util = __webpack_require__(/*! util */ "util");
-  if (typeof util.inherits !== 'function') throw '';
-  module.exports = util.inherits;
-} catch (e) {
-  module.exports = __webpack_require__(/*! ./inherits_browser.js */ "./node_modules/inherits/inherits_browser.js");
-}
-
-
-/***/ }),
-
-/***/ "./node_modules/inherits/inherits_browser.js":
-/*!***************************************************!*\
-  !*** ./node_modules/inherits/inherits_browser.js ***!
-  \***************************************************/
-/*! no static exports found */
-/***/ (function(module, exports) {
-
-if (typeof Object.create === 'function') {
-  // implementation from standard node.js 'util' module
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
-  };
-} else {
-  // old school shim for old browsers
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
-  }
-}
-
-
-/***/ }),
-
-/***/ "./node_modules/isarray/index.js":
-/*!***************************************!*\
-  !*** ./node_modules/isarray/index.js ***!
-  \***************************************/
-/*! no static exports found */
-/***/ (function(module, exports) {
-
-var toString = {}.toString;
-
-module.exports = Array.isArray || function (arr) {
-  return toString.call(arr) == '[object Array]';
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/memory-pager/index.js":
-/*!********************************************!*\
-  !*** ./node_modules/memory-pager/index.js ***!
-  \********************************************/
-/*! no static exports found */
-/***/ (function(module, exports) {
-
-module.exports = Pager
-
-function Pager (pageSize, opts) {
-  if (!(this instanceof Pager)) return new Pager(pageSize, opts)
-
-  this.length = 0
-  this.updates = []
-  this.path = new Uint16Array(4)
-  this.pages = new Array(32768)
-  this.maxPages = this.pages.length
-  this.level = 0
-  this.pageSize = pageSize || 1024
-  this.deduplicate = opts ? opts.deduplicate : null
-  this.zeros = this.deduplicate ? alloc(this.deduplicate.length) : null
-}
-
-Pager.prototype.updated = function (page) {
-  while (this.deduplicate && page.buffer[page.deduplicate] === this.deduplicate[page.deduplicate]) {
-    page.deduplicate++
-    if (page.deduplicate === this.deduplicate.length) {
-      page.deduplicate = 0
-      if (page.buffer.equals && page.buffer.equals(this.deduplicate)) page.buffer = this.deduplicate
-      break
-    }
-  }
-  if (page.updated || !this.updates) return
-  page.updated = true
-  this.updates.push(page)
-}
-
-Pager.prototype.lastUpdate = function () {
-  if (!this.updates || !this.updates.length) return null
-  var page = this.updates.pop()
-  page.updated = false
-  return page
-}
-
-Pager.prototype._array = function (i, noAllocate) {
-  if (i >= this.maxPages) {
-    if (noAllocate) return
-    grow(this, i)
-  }
-
-  factor(i, this.path)
-
-  var arr = this.pages
-
-  for (var j = this.level; j > 0; j--) {
-    var p = this.path[j]
-    var next = arr[p]
-
-    if (!next) {
-      if (noAllocate) return
-      next = arr[p] = new Array(32768)
-    }
-
-    arr = next
-  }
-
-  return arr
-}
-
-Pager.prototype.get = function (i, noAllocate) {
-  var arr = this._array(i, noAllocate)
-  var first = this.path[0]
-  var page = arr && arr[first]
-
-  if (!page && !noAllocate) {
-    page = arr[first] = new Page(i, alloc(this.pageSize))
-    if (i >= this.length) this.length = i + 1
-  }
-
-  if (page && page.buffer === this.deduplicate && this.deduplicate && !noAllocate) {
-    page.buffer = copy(page.buffer)
-    page.deduplicate = 0
-  }
-
-  return page
-}
-
-Pager.prototype.set = function (i, buf) {
-  var arr = this._array(i, false)
-  var first = this.path[0]
-
-  if (i >= this.length) this.length = i + 1
-
-  if (!buf || (this.zeros && buf.equals && buf.equals(this.zeros))) {
-    arr[first] = undefined
-    return
-  }
-
-  if (this.deduplicate && buf.equals && buf.equals(this.deduplicate)) {
-    buf = this.deduplicate
-  }
-
-  var page = arr[first]
-  var b = truncate(buf, this.pageSize)
-
-  if (page) page.buffer = b
-  else arr[first] = new Page(i, b)
-}
-
-Pager.prototype.toBuffer = function () {
-  var list = new Array(this.length)
-  var empty = alloc(this.pageSize)
-  var ptr = 0
-
-  while (ptr < list.length) {
-    var arr = this._array(ptr, true)
-    for (var i = 0; i < 32768 && ptr < list.length; i++) {
-      list[ptr++] = (arr && arr[i]) ? arr[i].buffer : empty
-    }
-  }
-
-  return Buffer.concat(list)
-}
-
-function grow (pager, index) {
-  while (pager.maxPages < index) {
-    var old = pager.pages
-    pager.pages = new Array(32768)
-    pager.pages[0] = old
-    pager.level++
-    pager.maxPages *= 32768
-  }
-}
-
-function truncate (buf, len) {
-  if (buf.length === len) return buf
-  if (buf.length > len) return buf.slice(0, len)
-  var cpy = alloc(len)
-  buf.copy(cpy)
-  return cpy
-}
-
-function alloc (size) {
-  if (Buffer.alloc) return Buffer.alloc(size)
-  var buf = new Buffer(size)
-  buf.fill(0)
-  return buf
-}
-
-function copy (buf) {
-  var cpy = Buffer.allocUnsafe ? Buffer.allocUnsafe(buf.length) : new Buffer(buf.length)
-  buf.copy(cpy)
-  return cpy
-}
-
-function Page (i, buf) {
-  this.offset = i * buf.length
-  this.buffer = buf
-  this.updated = false
-  this.deduplicate = 0
-}
-
-function factor (n, out) {
-  n = (n - (out[0] = (n & 32767))) / 32768
-  n = (n - (out[1] = (n & 32767))) / 32768
-  out[3] = ((n - (out[2] = (n & 32767))) / 32768) & 32767
-}
-
-
-/***/ }),
-
 /***/ "./node_modules/mongodb/index.js":
 /*!***************************************!*\
   !*** ./node_modules/mongodb/index.js ***!
@@ -8573,11 +7373,6 @@ const connect = __webpack_require__(/*! ./lib/mongo_client */ "./node_modules/mo
 connect.MongoError = core.MongoError;
 connect.MongoNetworkError = core.MongoNetworkError;
 connect.MongoTimeoutError = core.MongoTimeoutError;
-connect.MongoServerSelectionError = core.MongoServerSelectionError;
-connect.MongoParseError = core.MongoParseError;
-connect.MongoWriteConcernError = core.MongoWriteConcernError;
-connect.MongoBulkWriteError = __webpack_require__(/*! ./lib/bulk/common */ "./node_modules/mongodb/lib/bulk/common.js").BulkWriteError;
-connect.BulkWriteError = connect.MongoBulkWriteError;
 
 // Actual driver classes exported
 connect.Admin = __webpack_require__(/*! ./lib/admin */ "./node_modules/mongodb/lib/admin.js");
@@ -9013,7 +7808,7 @@ class AggregationCursor extends Cursor {
   /**
    * Set the batch size for the cursor.
    * @method
-   * @param {number} value The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
+   * @param {number} value The batchSize for the cursor.
    * @throws {MongoError}
    * @return {AggregationCursor}
    */
@@ -9260,7 +8055,6 @@ deprecate(
  * at any given time if batch size is specified. Otherwise, the caller is responsible
  * for making sure that the entire result can fit the memory.
  * @method AggregationCursor.prototype.each
- * @deprecated
  * @param {AggregationCursor~resultCallback} callback The result callback.
  * @throws {MongoError}
  * @return {null}
@@ -9310,7 +8104,7 @@ deprecate(
  * @param {MongoError} error An error instance representing the error during the execution.
  */
 
-/**
+/*
  * Iterates over all the documents for this cursor using the iterator, callback pattern.
  * @method AggregationCursor.prototype.forEach
  * @param {AggregationCursor~iteratorCallback} iterator The iteration callback.
@@ -9477,69 +8271,60 @@ class Batch {
 }
 
 /**
- * @classdesc
- * The result of a bulk write.
+ * Create a new BulkWriteResult instance (INTERNAL TYPE, do not instantiate directly)
+ *
+ * @class
+ * @return {BulkWriteResult} a BulkWriteResult instance
  */
 class BulkWriteResult {
-  /**
-   * Create a new BulkWriteResult instance
-   *
-   * **NOTE:** Internal Type, do not instantiate directly
-   */
   constructor(bulkResult) {
     this.result = bulkResult;
   }
 
   /**
-   * Evaluates to true if the bulk operation correctly executes
-   * @type {boolean}
+   * @return {boolean} ok Did bulk operation correctly execute
    */
   get ok() {
     return this.result.ok;
   }
 
   /**
-   * The number of inserted documents
-   * @type {number}
+   * @return {number} nInserted number of inserted documents
    */
   get nInserted() {
     return this.result.nInserted;
   }
 
   /**
-   * Number of upserted documents
-   * @type {number}
+   * @return {number} nUpserted Number of upserted documents
    */
   get nUpserted() {
     return this.result.nUpserted;
   }
 
   /**
-   * Number of matched documents
-   * @type {number}
+   * @return {number} nMatched Number of matched documents
    */
   get nMatched() {
     return this.result.nMatched;
   }
 
   /**
-   * Number of documents updated physically on disk
-   * @type {number}
+   * @return {number} nModified Number of documents updated physically on disk
    */
   get nModified() {
     return this.result.nModified;
   }
 
   /**
-   * Number of removed documents
-   * @type {number}
+   * @return {number} nRemoved Number of removed documents
    */
   get nRemoved() {
     return this.result.nRemoved;
   }
 
   /**
-   * Returns an array of all inserted ids
+   * Return an array of inserted ids
    *
    * @return {object[]}
    */
@@ -9548,7 +8333,7 @@ class BulkWriteResult {
   }
 
   /**
-   * Returns an array of all upserted ids
+   * Return an array of upserted ids
    *
    * @return {object[]}
    */
@@ -9557,7 +8342,7 @@ class BulkWriteResult {
   }
 
   /**
-   * Returns the upserted id at the given index
+   * Return the upserted id at position x
    *
    * @param {number} index the number of the upserted id to return, returns undefined if no result for passed in index
    * @return {object}
@@ -9567,7 +8352,7 @@ class BulkWriteResult {
   }
 
   /**
-   * Returns raw internal result
+   * Return raw internal result
    *
    * @return {object}
    */
@@ -9609,7 +8394,7 @@ class BulkWriteResult {
   /**
    * Retrieve all write errors
    *
-   * @return {WriteError[]}
+   * @return {object[]}
    */
   getWriteErrors() {
     return this.result.writeErrors;
@@ -9651,7 +8436,7 @@ class BulkWriteResult {
   }
 
   /**
-   * @return {object}
+   * @return {BulkWriteResult} a BulkWriteResult instance
    */
   toJSON() {
     return this.result;
@@ -9673,29 +8458,25 @@ class BulkWriteResult {
 }
 
 /**
- * @classdesc An error representing a failure by the server to apply the requested write concern to the bulk operation.
+ * Create a new WriteConcernError instance (INTERNAL TYPE, do not instantiate directly)
+ *
+ * @class
+ * @return {WriteConcernError} a WriteConcernError instance
  */
 class WriteConcernError {
-  /**
-   * Create a new WriteConcernError instance
-   *
-   * **NOTE:** Internal Type, do not instantiate directly
-   */
   constructor(err) {
     this.err = err;
   }
 
   /**
-   * Write concern error code.
-   * @type {number}
+   * @return {number} code Write concern error code.
    */
   get code() {
     return this.err.code;
   }
 
   /**
-   * Write concern error message.
-   * @type {string}
+   * @return {string} errmsg Write concern error message.
    */
   get errmsg() {
     return this.err.errmsg;
@@ -9717,44 +8498,39 @@ class WriteConcernError {
 }
 
 /**
- * @classdesc An error that occurred during a BulkWrite on the server.
+ * Create a new WriteError instance (INTERNAL TYPE, do not instantiate directly)
+ *
+ * @class
+ * @return {WriteConcernError} a WriteConcernError instance
  */
 class WriteError {
-  /**
-   * Create a new WriteError instance
-   *
-   * **NOTE:** Internal Type, do not instantiate directly
-   */
   constructor(err) {
     this.err = err;
   }
 
   /**
-   * WriteError code.
-   * @type {number}
+   * @return {number} code Write concern error code.
    */
   get code() {
     return this.err.code;
   }
 
   /**
-   * WriteError original bulk operation index.
-   * @type {number}
+   * @return {number} index Write concern error original bulk operation index.
    */
   get index() {
     return this.err.index;
   }
 
   /**
-   * WriteError message.
-   * @type {string}
+   * @return {string} errmsg Write concern error message.
    */
   get errmsg() {
     return this.err.errmsg;
   }
 
   /**
-   * Returns the underlying operation that caused the error
+   * Define access methods
    * @return {object}
    */
   getOperation() {
@@ -9897,7 +8673,7 @@ function mergeBatchResults(batch, bulkResult, err, result) {
   if (Array.isArray(result.writeErrors)) {
     for (let i = 0; i < result.writeErrors.length; i++) {
       const writeError = {
-        index: batch.originalIndexes[result.writeErrors[i].index],
+        index: batch.originalZeroIndex + result.writeErrors[i].index,
         code: result.writeErrors[i].code,
         errmsg: result.writeErrors[i].errmsg,
         op: batch.operations[result.writeErrors[i].index]
@@ -9950,7 +8726,6 @@ function executeCommands(bulkOperation, options, callback) {
 /**
  * handles write concern error
  *
- * @ignore
  * @param {object} batch
  * @param {object} bulkResult
  * @param {boolean} ordered
@@ -9972,16 +8747,15 @@ function handleMongoWriteConcernError(batch, bulkResult, err, callback) {
 }
 
 /**
- * @classdesc An error indicating an unsuccessful Bulk Write
+ * Creates a new BulkWriteError
+ *
+ * @class
+ * @param {Error|string|object} message The error message
+ * @param {BulkWriteResult} result The result of the bulk write operation
+ * @return {BulkWriteError} A BulkWriteError instance
+ * @extends {MongoError}
  */
 class BulkWriteError extends MongoError {
-  /**
-   * Creates a new BulkWriteError
-   *
-   * @param {Error|string|object} message The error message
-   * @param {BulkWriteResult} result The result of the bulk write operation
-   * @extends {MongoError}
-   */
   constructor(error, result) {
     const message = error.err || error.errmsg || error.errMessage || error;
     super(message);
@@ -9994,14 +8768,11 @@ class BulkWriteError extends MongoError {
 }
 
 /**
- * @classdesc A builder object that is returned from {@link BulkOperationBase#find}.
- * Is used to build a write operation that involves a query filter.
+ * Handles the find operators for the bulk operations
+ * @class
  */
 class FindOperators {
   /**
-   * Creates a new FindOperators object.
-   *
-   * **NOTE:** Internal Type, do not instantiate directly
    * @param {OrderedBulkOperation|UnorderedBulkOperation} bulkOperation
    */
   constructor(bulkOperation) {
@@ -10009,13 +8780,12 @@ class FindOperators {
   }
 
   /**
-   * Add a multiple update operation to the bulk operation
+   * Add a single update document to the bulk operation
    *
    * @method
-   * @param {object} updateDocument An update field for an update operation. See {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-u u documentation}
-   * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
-   * @throws {MongoError} If operation cannot be added to bulk write
-   * @return {OrderedBulkOperation|UnorderedBulkOperation} A reference to the parent BulkOperation
+   * @param {object} updateDocument update operations
+   * @throws {MongoError}
+   * @return {OrderedBulkOperation|UnordedBulkOperation}
    */
   update(updateDocument) {
     // Perform upsert
@@ -10029,23 +8799,18 @@ class FindOperators {
       upsert: upsert
     };
 
-    if (updateDocument.hint) {
-      document.hint = updateDocument.hint;
-    }
-
     // Clear out current Op
     this.s.currentOp = null;
     return this.s.options.addToOperationsList(this, UPDATE, document);
   }
 
   /**
-   * Add a single update operation to the bulk operation
+   * Add a single update one document to the bulk operation
    *
    * @method
-   * @param {object} updateDocument An update field for an update operation. See {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-u u documentation}
-   * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
-   * @throws {MongoError} If operation cannot be added to bulk write
-   * @return {OrderedBulkOperation|UnorderedBulkOperation} A reference to the parent BulkOperation
+   * @param {object} updateDocument update operations
+   * @throws {MongoError}
+   * @return {OrderedBulkOperation|UnordedBulkOperation}
    */
   updateOne(updateDocument) {
     // Perform upsert
@@ -10059,10 +8824,6 @@ class FindOperators {
       upsert: upsert
     };
 
-    if (updateDocument.hint) {
-      document.hint = updateDocument.hint;
-    }
-
     // Clear out current Op
     this.s.currentOp = null;
     return this.s.options.addToOperationsList(this, UPDATE, document);
@@ -10073,19 +8834,19 @@ class FindOperators {
    *
    * @method
    * @param {object} updateDocument the new document to replace the existing one with
-   * @throws {MongoError} If operation cannot be added to bulk write
-   * @return {OrderedBulkOperation|UnorderedBulkOperation} A reference to the parent BulkOperation
+   * @throws {MongoError}
+   * @return {OrderedBulkOperation|UnorderedBulkOperation}
    */
   replaceOne(updateDocument) {
     this.updateOne(updateDocument);
   }
 
   /**
-   * Upsert modifier for update bulk operation, noting that this operation is an upsert.
+   * Upsert modifier for update bulk operation
    *
    * @method
-   * @throws {MongoError} If operation cannot be added to bulk write
-   * @return {FindOperators} reference to self
+   * @throws {MongoError}
+   * @return {FindOperators}
    */
   upsert() {
     this.s.currentOp.upsert = true;
@@ -10096,8 +8857,8 @@ class FindOperators {
    * Add a delete one operation to the bulk operation
    *
    * @method
-   * @throws {MongoError} If operation cannot be added to bulk write
-   * @return {OrderedBulkOperation|UnorderedBulkOperation} A reference to the parent BulkOperation
+   * @throws {MongoError}
+   * @return {OrderedBulkOperation|UnordedBulkOperation}
    */
   deleteOne() {
     // Establish the update command
@@ -10112,11 +8873,11 @@ class FindOperators {
   }
 
   /**
-   * Add a delete many operation to the bulk operation
+   * Add a delete operation to the bulk operation
    *
    * @method
-   * @throws {MongoError} If operation cannot be added to bulk write
-   * @return {OrderedBulkOperation|UnorderedBulkOperation} A reference to the parent BulkOperation
+   * @throws {MongoError}
+   * @return {OrderedBulkOperation|UnordedBulkOperation}
    */
   delete() {
     // Establish the update command
@@ -10146,14 +8907,15 @@ class FindOperators {
 }
 
 /**
- * @classdesc Parent class to OrderedBulkOperation and UnorderedBulkOperation
- *
- * **NOTE:** Internal Type, do not instantiate directly
+ * Parent class to OrderedBulkOperation and UnorderedBulkOperation
+ * @class
  */
 class BulkOperationBase {
   /**
-   * Create a new OrderedBulkOperation or UnorderedBulkOperation instance
+   * Create a new OrderedBulkOperation or UnorderedBulkOperation instance (INTERNAL TYPE, do not instantiate directly)
+   * @class
    * @property {number} length Get the number of operations in the bulk.
+   * @return {OrderedBulkOperation|UnordedBulkOperation}
    */
   constructor(topology, collection, options, isOrdered) {
     // determine whether bulkOperation is ordered or unordered
@@ -10171,15 +8933,11 @@ class BulkOperationBase {
 
     // Handle to the bson serializer, used to calculate running sizes
     const bson = topology.bson;
+
     // Set max byte size
     const isMaster = topology.lastIsMaster();
-
-    // If we have autoEncryption on, batch-splitting must be done on 2mb chunks, but single documents
-    // over 2mb are still allowed
-    const usingAutoEncryption = !!(topology.s.options && topology.s.options.autoEncrypter);
-    const maxBsonObjectSize =
+    const maxBatchSizeBytes =
       isMaster && isMaster.maxBsonObjectSize ? isMaster.maxBsonObjectSize : 1024 * 1024 * 16;
-    const maxBatchSizeBytes = usingAutoEncryption ? 1024 * 1024 * 2 : maxBsonObjectSize;
     const maxWriteBatchSize =
       isMaster && isMaster.maxWriteBatchSize ? isMaster.maxWriteBatchSize : 1000;
 
@@ -10231,9 +8989,8 @@ class BulkOperationBase {
       // Write concern
       writeConcern: writeConcern,
       // Max batch size options
-      maxBsonObjectSize,
-      maxBatchSizeBytes,
-      maxWriteBatchSize,
+      maxBatchSizeBytes: maxBatchSizeBytes,
+      maxWriteBatchSize: maxWriteBatchSize,
       maxKeySize,
       // Namespace
       namespace: namespace,
@@ -10268,16 +9025,7 @@ class BulkOperationBase {
    *
    * @param {object} document the document to insert
    * @throws {MongoError}
-   * @return {BulkOperationBase} A reference to self
-   *
-   * @example
-   * const bulkOp = collection.initializeOrderedBulkOp();
-   * // Adds three inserts to the bulkOp.
-   * bulkOp
-   *   .insert({ a: 1 })
-   *   .insert({ b: 2 })
-   *   .insert({ c: 3 });
-   * await bulkOp.execute();
+   * @return {OrderedBulkOperation|UnorderedBulkOperation}
    */
   insert(document) {
     if (this.s.collection.s.db.options.forceServerObjectId !== true && document._id == null)
@@ -10286,42 +9034,11 @@ class BulkOperationBase {
   }
 
   /**
-   * Builds a find operation for an update/updateOne/delete/deleteOne/replaceOne.
-   * Returns a builder object used to complete the definition of the operation.
+   * Initiate a find operation for an update/updateOne/remove/removeOne/replaceOne
    *
    * @method
-   * @param {object} selector The selector for the bulk operation. See {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-q q documentation}
-   * @throws {MongoError} if a selector is not specified
-   * @return {FindOperators} A helper object with which the write operation can be defined.
-   *
-   * @example
-   * const bulkOp = collection.initializeOrderedBulkOp();
-   *
-   * // Add an updateOne to the bulkOp
-   * bulkOp.find({ a: 1 }).updateOne({ $set: { b: 2 } });
-   *
-   * // Add an updateMany to the bulkOp
-   * bulkOp.find({ c: 3 }).update({ $set: { d: 4 } });
-   *
-   * // Add an upsert
-   * bulkOp.find({ e: 5 }).upsert().updateOne({ $set: { f: 6 } });
-   *
-   * // Add a deletion
-   * bulkOp.find({ g: 7 }).deleteOne();
-   *
-   * // Add a multi deletion
-   * bulkOp.find({ h: 8 }).delete();
-   *
-   * // Add a replaceOne
-   * bulkOp.find({ i: 9 }).replaceOne({ j: 10 });
-   *
-   * // Update using a pipeline (requires Mongodb 4.2 or higher)
-   * bulk.find({ k: 11, y: { $exists: true }, z: { $exists: true } }).updateOne([
-   *   { $set: { total: { $sum: [ '$y', '$z' ] } } }
-   * ]);
-   *
-   * // All of the ops will now be executed
-   * await bulkOp.execute();
+   * @param {object} selector The selector for the bulk operation.
+   * @throws {MongoError}
    */
   find(selector) {
     if (!selector) {
@@ -10337,12 +9054,11 @@ class BulkOperationBase {
   }
 
   /**
-   * Specifies a raw operation to perform in the bulk write.
+   * Raw performs the bulk operation
    *
    * @method
-   * @param {object} op The raw operation to perform.
-   * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
-   * @return {BulkOperationBase} A reference to self
+   * @param {object} op operation
+   * @return {OrderedBulkOperation|UnorderedBulkOperation}
    */
   raw(op) {
     const key = Object.keys(op)[0];
@@ -10371,11 +9087,6 @@ class BulkOperationBase {
         u: op[key].update || op[key].replacement,
         multi: multi
       };
-
-      if (op[key].hint) {
-        operation.hint = op[key].hint;
-      }
-
       if (this.isOrdered) {
         operation.upsert = op[key].upsert ? true : false;
         if (op.collation) operation.collation = op.collation;
@@ -10434,12 +9145,6 @@ class BulkOperationBase {
     );
   }
 
-  /**
-   * helper function to assist with promiseOrCallback behavior
-   * @ignore
-   * @param {*} err
-   * @param {*} callback
-   */
   _handleEarlyError(err, callback) {
     if (typeof callback === 'function') {
       callback(err, null);
@@ -10450,9 +9155,8 @@ class BulkOperationBase {
   }
 
   /**
-   * An internal helper method. Do not invoke directly. Will be going away in the future
+   * Execute next write command in a chain
    *
-   * @ignore
    * @method
    * @param {class} bulk either OrderedBulkOperation or UnorderdBulkOperation
    * @param {object} writeConcern
@@ -10496,21 +9200,19 @@ class BulkOperationBase {
    * @param {MongoError} error An error instance representing the error during the execution.
    * @param {BulkWriteResult} result The bulk write result.
    */
-
   /**
-   * Execute the bulk operation
+   * Execute the ordered bulk operation
    *
    * @method
-   * @param {WriteConcern} [_writeConcern] Optional write concern. Can also be specified through options.
    * @param {object} [options] Optional settings.
    * @param {(number|string)} [options.w] The write concern.
    * @param {number} [options.wtimeout] The write concern timeout.
    * @param {boolean} [options.j=false] Specify a journal write concern.
    * @param {boolean} [options.fsync=false] Specify a file sync write concern.
-   * @param {BulkOperationBase~resultCallback} [callback] A callback that will be invoked when bulkWrite finishes/errors
+   * @param {BulkOperationBase~resultCallback} [callback] The result callback
    * @throws {MongoError} Throws error if the bulk object has already been executed
    * @throws {MongoError} Throws error if the bulk object does not have any operations
-   * @return {Promise|void} returns Promise if no callback passed
+   * @return {Promise} returns Promise if no callback passed
    */
   execute(_writeConcern, options, callback) {
     const ret = this.bulkExecute(_writeConcern, options, callback);
@@ -10527,9 +9229,6 @@ class BulkOperationBase {
   /**
    * Handles final options before executing command
    *
-   * An internal method. Do not invoke. Will not be accessible in the future
-   *
-   * @ignore
    * @param {object} config
    * @param {object} config.options
    * @param {number} config.batch
@@ -10617,9 +9316,6 @@ class BulkOperationBase {
   /**
    * Handles the write error before executing commands
    *
-   * An internal helper method. Do not invoke directly. Will be going away in the future
-   *
-   * @ignore
    * @param {function} callback
    * @param {BulkWriteResult} writeResult
    * @param {class} self either OrderedBulkOperation or UnorderdBulkOperation
@@ -10704,7 +9400,6 @@ const toError = utils.toError;
 /**
  * Add to internal list of Operations
  *
- * @ignore
  * @param {OrderedBulkOperation} bulkOperation
  * @param {number} docType number indicating the document type
  * @param {object} document
@@ -10721,8 +9416,8 @@ function addToOperationsList(bulkOperation, docType, document) {
   });
 
   // Throw error if the doc is bigger than the max BSON size
-  if (bsonSize >= bulkOperation.s.maxBsonObjectSize)
-    throw toError('document is larger than the maximum size ' + bulkOperation.s.maxBsonObjectSize);
+  if (bsonSize >= bulkOperation.s.maxBatchSizeBytes)
+    throw toError('document is larger than the maximum size ' + bulkOperation.s.maxBatchSizeBytes);
 
   // Create a new batch object if we don't have a current one
   if (bulkOperation.s.currentBatch == null)
@@ -10732,14 +9427,9 @@ function addToOperationsList(bulkOperation, docType, document) {
 
   // Check if we need to create a new batch
   if (
-    // New batch if we exceed the max batch op size
     bulkOperation.s.currentBatchSize + 1 >= bulkOperation.s.maxWriteBatchSize ||
-    // New batch if we exceed the maxBatchSizeBytes. Only matters if batch already has a doc,
-    // since we can't sent an empty batch
-    (bulkOperation.s.currentBatchSize > 0 &&
-      bulkOperation.s.currentBatchSizeBytes + maxKeySize + bsonSize >=
-        bulkOperation.s.maxBatchSizeBytes) ||
-    // New batch if the new op does not have the same op type as the current batch
+    bulkOperation.s.currentBatchSizeBytes + maxKeySize + bsonSize >=
+      bulkOperation.s.maxBatchSizeBytes ||
     bulkOperation.s.currentBatch.batchType !== docType
   ) {
     // Save the batch to the execution stack
@@ -10782,6 +9472,7 @@ function addToOperationsList(bulkOperation, docType, document) {
  * @property {number} length Get the number of operations in the bulk.
  * @return {OrderedBulkOperation} a OrderedBulkOperation instance.
  */
+
 class OrderedBulkOperation extends BulkOperationBase {
   constructor(topology, collection, options) {
     options = options || {};
@@ -10826,7 +9517,6 @@ const toError = utils.toError;
 /**
  * Add to internal list of Operations
  *
- * @ignore
  * @param {UnorderedBulkOperation} bulkOperation
  * @param {number} docType number indicating the document type
  * @param {object} document
@@ -10842,8 +9532,8 @@ function addToOperationsList(bulkOperation, docType, document) {
     ignoreUndefined: false
   });
   // Throw error if the doc is bigger than the max BSON size
-  if (bsonSize >= bulkOperation.s.maxBsonObjectSize)
-    throw toError('document is larger than the maximum size ' + bulkOperation.s.maxBsonObjectSize);
+  if (bsonSize >= bulkOperation.s.maxBatchSizeBytes)
+    throw toError('document is larger than the maximum size ' + bulkOperation.s.maxBatchSizeBytes);
   // Holds the current batch
   bulkOperation.s.currentBatch = null;
   // Get the right type of batch
@@ -10863,14 +9553,9 @@ function addToOperationsList(bulkOperation, docType, document) {
 
   // Check if we need to create a new batch
   if (
-    // New batch if we exceed the max batch op size
     bulkOperation.s.currentBatch.size + 1 >= bulkOperation.s.maxWriteBatchSize ||
-    // New batch if we exceed the maxBatchSizeBytes. Only matters if batch already has a doc,
-    // since we can't sent an empty batch
-    (bulkOperation.s.currentBatch.size > 0 &&
-      bulkOperation.s.currentBatch.sizeBytes + maxKeySize + bsonSize >=
-        bulkOperation.s.maxBatchSizeBytes) ||
-    // New batch if the new op does not have the same op type as the current batch
+    bulkOperation.s.currentBatch.sizeBytes + maxKeySize + bsonSize >=
+      bulkOperation.s.maxBatchSizeBytes ||
     bulkOperation.s.currentBatch.batchType !== docType
   ) {
     // Save the batch to the execution stack
@@ -10990,7 +9675,7 @@ const CHANGE_DOMAIN_TYPES = {
  * @property {ResumeToken} [resumeAfter] Allows you to start a changeStream after a specified event. See {@link https://docs.mongodb.com/master/changeStreams/#resumeafter-for-change-streams|ChangeStream documentation}.
  * @property {ResumeToken} [startAfter] Similar to resumeAfter, but will allow you to start after an invalidated event. See {@link https://docs.mongodb.com/master/changeStreams/#startafter-for-change-streams|ChangeStream documentation}.
  * @property {OperationTime} [startAtOperationTime] Will start the changeStream after the specified operationTime.
- * @property {number} [batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
+ * @property {number} [batchSize] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @property {object} [collation] Specify collation settings for operation. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @property {ReadPreference} [readPreference] The read preference. Defaults to the read preference of the database or collection. See {@link https://docs.mongodb.com/manual/reference/read-preference|read preference documentation}.
  */
@@ -11318,9 +10003,10 @@ function createChangeStreamCursor(self, options) {
 
   const pipeline = [{ $changeStream: changeStreamStageOptions }].concat(self.pipeline);
   const cursorOptions = applyKnownOptions({}, options, CURSOR_OPTIONS);
+  const changeStreamOptions = Object.assign({ batchSize: 1 }, options);
   const changeStreamCursor = new ChangeStreamCursor(
     self.topology,
-    new AggregateOperation(self.parent, pipeline, options),
+    new AggregateOperation(self.parent, pipeline, changeStreamOptions),
     cursorOptions
   );
 
@@ -11529,1478 +10215,6 @@ module.exports = ChangeStream;
 
 /***/ }),
 
-/***/ "./node_modules/mongodb/lib/cmap/connection.js":
-/*!*****************************************************!*\
-  !*** ./node_modules/mongodb/lib/cmap/connection.js ***!
-  \*****************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-const EventEmitter = __webpack_require__(/*! events */ "events");
-const MessageStream = __webpack_require__(/*! ./message_stream */ "./node_modules/mongodb/lib/cmap/message_stream.js");
-const MongoError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const MongoNetworkError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoNetworkError;
-const MongoWriteConcernError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoWriteConcernError;
-const CommandResult = __webpack_require__(/*! ../core/connection/command_result */ "./node_modules/mongodb/lib/core/connection/command_result.js");
-const StreamDescription = __webpack_require__(/*! ./stream_description */ "./node_modules/mongodb/lib/cmap/stream_description.js").StreamDescription;
-const wp = __webpack_require__(/*! ../core/wireprotocol */ "./node_modules/mongodb/lib/core/wireprotocol/index.js");
-const apm = __webpack_require__(/*! ../core/connection/apm */ "./node_modules/mongodb/lib/core/connection/apm.js");
-const updateSessionFromResponse = __webpack_require__(/*! ../core/sessions */ "./node_modules/mongodb/lib/core/sessions.js").updateSessionFromResponse;
-const uuidV4 = __webpack_require__(/*! ../core/utils */ "./node_modules/mongodb/lib/core/utils.js").uuidV4;
-
-const kStream = Symbol('stream');
-const kQueue = Symbol('queue');
-const kMessageStream = Symbol('messageStream');
-const kGeneration = Symbol('generation');
-const kLastUseTime = Symbol('lastUseTime');
-const kClusterTime = Symbol('clusterTime');
-const kDescription = Symbol('description');
-const kIsMaster = Symbol('ismaster');
-const kAutoEncrypter = Symbol('autoEncrypter');
-
-class Connection extends EventEmitter {
-  constructor(stream, options) {
-    super(options);
-
-    this.id = options.id;
-    this.address = streamIdentifier(stream);
-    this.bson = options.bson;
-    this.socketTimeout = typeof options.socketTimeout === 'number' ? options.socketTimeout : 360000;
-    this.monitorCommands =
-      typeof options.monitorCommands === 'boolean' ? options.monitorCommands : false;
-    this.closed = false;
-    this.destroyed = false;
-
-    this[kDescription] = new StreamDescription(this.address, options);
-    this[kGeneration] = options.generation;
-    this[kLastUseTime] = Date.now();
-
-    // retain a reference to an `AutoEncrypter` if present
-    if (options.autoEncrypter) {
-      this[kAutoEncrypter] = options.autoEncrypter;
-    }
-
-    // setup parser stream and message handling
-    this[kQueue] = new Map();
-    this[kMessageStream] = new MessageStream(options);
-    this[kMessageStream].on('message', messageHandler(this));
-    this[kStream] = stream;
-    stream.on('error', () => {
-      /* ignore errors, listen to `close` instead */
-    });
-
-    stream.on('close', () => {
-      if (this.closed) {
-        return;
-      }
-
-      this.closed = true;
-      this[kQueue].forEach(op =>
-        op.cb(new MongoNetworkError(`connection ${this.id} to ${this.address} closed`))
-      );
-      this[kQueue].clear();
-
-      this.emit('close');
-    });
-
-    stream.on('timeout', () => {
-      if (this.closed) {
-        return;
-      }
-
-      stream.destroy();
-      this.closed = true;
-      this[kQueue].forEach(op =>
-        op.cb(new MongoNetworkError(`connection ${this.id} to ${this.address} timed out`))
-      );
-      this[kQueue].clear();
-
-      this.emit('close');
-    });
-
-    // hook the message stream up to the passed in stream
-    stream.pipe(this[kMessageStream]);
-    this[kMessageStream].pipe(stream);
-  }
-
-  get description() {
-    return this[kDescription];
-  }
-
-  get ismaster() {
-    return this[kIsMaster];
-  }
-
-  // the `connect` method stores the result of the handshake ismaster on the connection
-  set ismaster(response) {
-    this[kDescription].receiveResponse(response);
-
-    // TODO: remove this, and only use the `StreamDescription` in the future
-    this[kIsMaster] = response;
-  }
-
-  get generation() {
-    return this[kGeneration] || 0;
-  }
-
-  get idleTime() {
-    return Date.now() - this[kLastUseTime];
-  }
-
-  get clusterTime() {
-    return this[kClusterTime];
-  }
-
-  get stream() {
-    return this[kStream];
-  }
-
-  markAvailable() {
-    this[kLastUseTime] = Date.now();
-  }
-
-  destroy(options, callback) {
-    if (typeof options === 'function') {
-      callback = options;
-      options = {};
-    }
-
-    options = Object.assign({ force: false }, options);
-    if (this[kStream] == null || this.destroyed) {
-      this.destroyed = true;
-      if (typeof callback === 'function') {
-        callback();
-      }
-
-      return;
-    }
-
-    if (options.force) {
-      this[kStream].destroy();
-      this.destroyed = true;
-      if (typeof callback === 'function') {
-        callback();
-      }
-
-      return;
-    }
-
-    this[kStream].end(err => {
-      this.destroyed = true;
-      if (typeof callback === 'function') {
-        callback(err);
-      }
-    });
-  }
-
-  // Wire protocol methods
-  command(ns, cmd, options, callback) {
-    wp.command(makeServerTrampoline(this), ns, cmd, options, callback);
-  }
-
-  query(ns, cmd, cursorState, options, callback) {
-    wp.query(makeServerTrampoline(this), ns, cmd, cursorState, options, callback);
-  }
-
-  getMore(ns, cursorState, batchSize, options, callback) {
-    wp.getMore(makeServerTrampoline(this), ns, cursorState, batchSize, options, callback);
-  }
-
-  killCursors(ns, cursorState, callback) {
-    wp.killCursors(makeServerTrampoline(this), ns, cursorState, callback);
-  }
-
-  insert(ns, ops, options, callback) {
-    wp.insert(makeServerTrampoline(this), ns, ops, options, callback);
-  }
-
-  update(ns, ops, options, callback) {
-    wp.update(makeServerTrampoline(this), ns, ops, options, callback);
-  }
-
-  remove(ns, ops, options, callback) {
-    wp.remove(makeServerTrampoline(this), ns, ops, options, callback);
-  }
-}
-
-/// This lets us emulate a legacy `Server` instance so we can work with the existing wire
-/// protocol methods. Eventually, the operation executor will return a `Connection` to execute
-/// against.
-function makeServerTrampoline(connection) {
-  const server = {
-    description: connection.description,
-    clusterTime: connection[kClusterTime],
-    s: {
-      bson: connection.bson,
-      pool: { write: write.bind(connection), isConnected: () => true }
-    }
-  };
-
-  if (connection[kAutoEncrypter]) {
-    server.autoEncrypter = connection[kAutoEncrypter];
-  }
-
-  return server;
-}
-
-function messageHandler(conn) {
-  return function messageHandler(message) {
-    // always emit the message, in case we are streaming
-    conn.emit('message', message);
-    if (!conn[kQueue].has(message.responseTo)) {
-      return;
-    }
-
-    const operationDescription = conn[kQueue].get(message.responseTo);
-
-    // SERVER-45775: For exhaust responses we should be able to use the same requestId to
-    // track response, however the server currently synthetically produces remote requests
-    // making the `responseTo` change on each response
-    conn[kQueue].delete(message.responseTo);
-    if (message.moreToCome) {
-      // requeue the callback for next synthetic request
-      conn[kQueue].set(message.requestId, operationDescription);
-    }
-
-    const callback = operationDescription.cb;
-    if (operationDescription.socketTimeoutOverride) {
-      conn[kStream].setTimeout(conn.socketTimeout);
-    }
-
-    try {
-      // Pass in the entire description because it has BSON parsing options
-      message.parse(operationDescription);
-    } catch (err) {
-      callback(new MongoError(err));
-      return;
-    }
-
-    if (message.documents[0]) {
-      const document = message.documents[0];
-      const session = operationDescription.session;
-      if (session) {
-        updateSessionFromResponse(session, document);
-      }
-
-      if (document.$clusterTime) {
-        conn[kClusterTime] = document.$clusterTime;
-        conn.emit('clusterTimeReceived', document.$clusterTime);
-      }
-
-      if (operationDescription.command) {
-        if (document.writeConcernError) {
-          callback(new MongoWriteConcernError(document.writeConcernError, document));
-          return;
-        }
-
-        if (document.ok === 0 || document.$err || document.errmsg || document.code) {
-          callback(new MongoError(document));
-          return;
-        }
-      }
-    }
-
-    // NODE-2382: reenable in our glorious non-leaky abstraction future
-    // callback(null, operationDescription.fullResult ? message : message.documents[0]);
-
-    callback(
-      undefined,
-      new CommandResult(
-        operationDescription.fullResult ? message : message.documents[0],
-        conn,
-        message
-      )
-    );
-  };
-}
-
-function streamIdentifier(stream) {
-  if (typeof stream.address === 'function') {
-    return `${stream.remoteAddress}:${stream.remotePort}`;
-  }
-
-  return uuidV4().toString('hex');
-}
-
-// Not meant to be called directly, the wire protocol methods call this assuming it is a `Pool` instance
-function write(command, options, callback) {
-  if (typeof options === 'function') {
-    callback = options;
-  }
-
-  options = options || {};
-  const operationDescription = {
-    requestId: command.requestId,
-    cb: callback,
-    session: options.session,
-    fullResult: typeof options.fullResult === 'boolean' ? options.fullResult : false,
-    noResponse: typeof options.noResponse === 'boolean' ? options.noResponse : false,
-    documentsReturnedIn: options.documentsReturnedIn,
-    command: !!options.command,
-
-    // for BSON parsing
-    promoteLongs: typeof options.promoteLongs === 'boolean' ? options.promoteLongs : true,
-    promoteValues: typeof options.promoteValues === 'boolean' ? options.promoteValues : true,
-    promoteBuffers: typeof options.promoteBuffers === 'boolean' ? options.promoteBuffers : false,
-    raw: typeof options.raw === 'boolean' ? options.raw : false
-  };
-
-  if (this[kDescription] && this[kDescription].compressor) {
-    operationDescription.agreedCompressor = this[kDescription].compressor;
-
-    if (this[kDescription].zlibCompressionLevel) {
-      operationDescription.zlibCompressionLevel = this[kDescription].zlibCompressionLevel;
-    }
-  }
-
-  if (typeof options.socketTimeout === 'number') {
-    operationDescription.socketTimeoutOverride = true;
-    this[kStream].setTimeout(options.socketTimeout);
-  }
-
-  // if command monitoring is enabled we need to modify the callback here
-  if (this.monitorCommands) {
-    this.emit('commandStarted', new apm.CommandStartedEvent(this, command));
-
-    operationDescription.started = process.hrtime();
-    operationDescription.cb = (err, reply) => {
-      if (err) {
-        this.emit(
-          'commandFailed',
-          new apm.CommandFailedEvent(this, command, err, operationDescription.started)
-        );
-      } else {
-        if (reply && reply.result && (reply.result.ok === 0 || reply.result.$err)) {
-          this.emit(
-            'commandFailed',
-            new apm.CommandFailedEvent(this, command, reply.result, operationDescription.started)
-          );
-        } else {
-          this.emit(
-            'commandSucceeded',
-            new apm.CommandSucceededEvent(this, command, reply, operationDescription.started)
-          );
-        }
-      }
-
-      if (typeof callback === 'function') {
-        callback(err, reply);
-      }
-    };
-  }
-
-  if (!operationDescription.noResponse) {
-    this[kQueue].set(operationDescription.requestId, operationDescription);
-  }
-
-  try {
-    this[kMessageStream].writeCommand(command, operationDescription);
-  } catch (e) {
-    if (!operationDescription.noResponse) {
-      this[kQueue].delete(operationDescription.requestId);
-      operationDescription.cb(e);
-      return;
-    }
-  }
-
-  if (operationDescription.noResponse) {
-    operationDescription.cb();
-  }
-}
-
-module.exports = {
-  Connection
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/cmap/connection_pool.js":
-/*!**********************************************************!*\
-  !*** ./node_modules/mongodb/lib/cmap/connection_pool.js ***!
-  \**********************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-const Denque = __webpack_require__(/*! denque */ "./node_modules/denque/index.js");
-const EventEmitter = __webpack_require__(/*! events */ "events").EventEmitter;
-const Logger = __webpack_require__(/*! ../core/connection/logger */ "./node_modules/mongodb/lib/core/connection/logger.js");
-const makeCounter = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").makeCounter;
-const MongoError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const Connection = __webpack_require__(/*! ./connection */ "./node_modules/mongodb/lib/cmap/connection.js").Connection;
-const eachAsync = __webpack_require__(/*! ../core/utils */ "./node_modules/mongodb/lib/core/utils.js").eachAsync;
-const connect = __webpack_require__(/*! ../core/connection/connect */ "./node_modules/mongodb/lib/core/connection/connect.js");
-const relayEvents = __webpack_require__(/*! ../core/utils */ "./node_modules/mongodb/lib/core/utils.js").relayEvents;
-
-const errors = __webpack_require__(/*! ./errors */ "./node_modules/mongodb/lib/cmap/errors.js");
-const PoolClosedError = errors.PoolClosedError;
-const WaitQueueTimeoutError = errors.WaitQueueTimeoutError;
-
-const events = __webpack_require__(/*! ./events */ "./node_modules/mongodb/lib/cmap/events.js");
-const ConnectionPoolCreatedEvent = events.ConnectionPoolCreatedEvent;
-const ConnectionPoolClosedEvent = events.ConnectionPoolClosedEvent;
-const ConnectionCreatedEvent = events.ConnectionCreatedEvent;
-const ConnectionReadyEvent = events.ConnectionReadyEvent;
-const ConnectionClosedEvent = events.ConnectionClosedEvent;
-const ConnectionCheckOutStartedEvent = events.ConnectionCheckOutStartedEvent;
-const ConnectionCheckOutFailedEvent = events.ConnectionCheckOutFailedEvent;
-const ConnectionCheckedOutEvent = events.ConnectionCheckedOutEvent;
-const ConnectionCheckedInEvent = events.ConnectionCheckedInEvent;
-const ConnectionPoolClearedEvent = events.ConnectionPoolClearedEvent;
-
-const kLogger = Symbol('logger');
-const kConnections = Symbol('connections');
-const kPermits = Symbol('permits');
-const kMinPoolSizeTimer = Symbol('minPoolSizeTimer');
-const kGeneration = Symbol('generation');
-const kConnectionCounter = Symbol('connectionCounter');
-const kCancellationToken = Symbol('cancellationToken');
-const kWaitQueue = Symbol('waitQueue');
-const kCancelled = Symbol('cancelled');
-
-const VALID_POOL_OPTIONS = new Set([
-  // `connect` options
-  'ssl',
-  'bson',
-  'connectionType',
-  'monitorCommands',
-  'socketTimeout',
-  'credentials',
-  'compression',
-
-  // node Net options
-  'host',
-  'port',
-  'localAddress',
-  'localPort',
-  'family',
-  'hints',
-  'lookup',
-  'path',
-
-  // node TLS options
-  'ca',
-  'cert',
-  'sigalgs',
-  'ciphers',
-  'clientCertEngine',
-  'crl',
-  'dhparam',
-  'ecdhCurve',
-  'honorCipherOrder',
-  'key',
-  'privateKeyEngine',
-  'privateKeyIdentifier',
-  'maxVersion',
-  'minVersion',
-  'passphrase',
-  'pfx',
-  'secureOptions',
-  'secureProtocol',
-  'sessionIdContext',
-  'allowHalfOpen',
-  'rejectUnauthorized',
-  'pskCallback',
-  'ALPNProtocols',
-  'servername',
-  'checkServerIdentity',
-  'session',
-  'minDHSize',
-  'secureContext',
-
-  // spec options
-  'maxPoolSize',
-  'minPoolSize',
-  'maxIdleTimeMS',
-  'waitQueueTimeoutMS'
-]);
-
-function resolveOptions(options, defaults) {
-  const newOptions = Array.from(VALID_POOL_OPTIONS).reduce((obj, key) => {
-    if (options.hasOwnProperty(key)) {
-      obj[key] = options[key];
-    }
-
-    return obj;
-  }, {});
-
-  return Object.freeze(Object.assign({}, defaults, newOptions));
-}
-
-/**
- * Configuration options for drivers wrapping the node driver.
- *
- * @typedef {Object} ConnectionPoolOptions
- * @property
- * @property {string} [host] The host to connect to
- * @property {number} [port] The port to connect to
- * @property {bson} [bson] The BSON instance to use for new connections
- * @property {number} [maxPoolSize=100] The maximum number of connections that may be associated with a pool at a given time. This includes in use and available connections.
- * @property {number} [minPoolSize=0] The minimum number of connections that MUST exist at any moment in a single connection pool.
- * @property {number} [maxIdleTimeMS] The maximum amount of time a connection should remain idle in the connection pool before being marked idle.
- * @property {number} [waitQueueTimeoutMS=0] The maximum amount of time operation execution should wait for a connection to become available. The default is 0 which means there is no limit.
- */
-
-/**
- * A pool of connections which dynamically resizes, and emit events related to pool activity
- *
- * @property {number} generation An integer representing the SDAM generation of the pool
- * @property {number} totalConnectionCount An integer expressing how many total connections (active + in use) the pool currently has
- * @property {number} availableConnectionCount An integer expressing how many connections are currently available in the pool.
- * @property {string} address The address of the endpoint the pool is connected to
- *
- * @emits ConnectionPool#connectionPoolCreated
- * @emits ConnectionPool#connectionPoolClosed
- * @emits ConnectionPool#connectionCreated
- * @emits ConnectionPool#connectionReady
- * @emits ConnectionPool#connectionClosed
- * @emits ConnectionPool#connectionCheckOutStarted
- * @emits ConnectionPool#connectionCheckOutFailed
- * @emits ConnectionPool#connectionCheckedOut
- * @emits ConnectionPool#connectionCheckedIn
- * @emits ConnectionPool#connectionPoolCleared
- */
-class ConnectionPool extends EventEmitter {
-  /**
-   * Create a new Connection Pool
-   *
-   * @param {ConnectionPoolOptions} options
-   */
-  constructor(options) {
-    super();
-    options = options || {};
-
-    this.closed = false;
-    this.options = resolveOptions(options, {
-      connectionType: Connection,
-      maxPoolSize: typeof options.maxPoolSize === 'number' ? options.maxPoolSize : 100,
-      minPoolSize: typeof options.minPoolSize === 'number' ? options.minPoolSize : 0,
-      maxIdleTimeMS: typeof options.maxIdleTimeMS === 'number' ? options.maxIdleTimeMS : 0,
-      waitQueueTimeoutMS:
-        typeof options.waitQueueTimeoutMS === 'number' ? options.waitQueueTimeoutMS : 0,
-      autoEncrypter: options.autoEncrypter,
-      metadata: options.metadata
-    });
-
-    if (options.minSize > options.maxSize) {
-      throw new TypeError(
-        'Connection pool minimum size must not be greater than maxiumum pool size'
-      );
-    }
-
-    this[kLogger] = Logger('ConnectionPool', options);
-    this[kConnections] = new Denque();
-    this[kPermits] = this.options.maxPoolSize;
-    this[kMinPoolSizeTimer] = undefined;
-    this[kGeneration] = 0;
-    this[kConnectionCounter] = makeCounter(1);
-    this[kCancellationToken] = new EventEmitter();
-    this[kCancellationToken].setMaxListeners(Infinity);
-    this[kWaitQueue] = new Denque();
-
-    process.nextTick(() => {
-      this.emit('connectionPoolCreated', new ConnectionPoolCreatedEvent(this));
-      ensureMinPoolSize(this);
-    });
-  }
-
-  get address() {
-    return `${this.options.host}:${this.options.port}`;
-  }
-
-  get generation() {
-    return this[kGeneration];
-  }
-
-  get totalConnectionCount() {
-    return this[kConnections].length + (this.options.maxPoolSize - this[kPermits]);
-  }
-
-  get availableConnectionCount() {
-    return this[kConnections].length;
-  }
-
-  /**
-   * Check a connection out of this pool. The connection will continue to be tracked, but no reference to it
-   * will be held by the pool. This means that if a connection is checked out it MUST be checked back in or
-   * explicitly destroyed by the new owner.
-   *
-   * @param {ConnectionPool~checkOutCallback} callback
-   */
-  checkOut(callback) {
-    this.emit('connectionCheckOutStarted', new ConnectionCheckOutStartedEvent(this));
-
-    if (this.closed) {
-      this.emit('connectionCheckOutFailed', new ConnectionCheckOutFailedEvent(this, 'poolClosed'));
-      callback(new PoolClosedError(this));
-      return;
-    }
-
-    // add this request to the wait queue
-    const waitQueueMember = { callback };
-
-    const pool = this;
-    const waitQueueTimeoutMS = this.options.waitQueueTimeoutMS;
-    if (waitQueueTimeoutMS) {
-      waitQueueMember.timer = setTimeout(() => {
-        waitQueueMember[kCancelled] = true;
-        waitQueueMember.timer = undefined;
-
-        pool.emit('connectionCheckOutFailed', new ConnectionCheckOutFailedEvent(pool, 'timeout'));
-        waitQueueMember.callback(new WaitQueueTimeoutError(pool));
-      }, waitQueueTimeoutMS);
-    }
-
-    // place the member at the end of the wait queue
-    this[kWaitQueue].push(waitQueueMember);
-
-    // process the wait queue
-    processWaitQueue(this);
-  }
-
-  /**
-   * Check a connection into the pool.
-   *
-   * @param {Connection} connection The connection to check in
-   */
-  checkIn(connection) {
-    const poolClosed = this.closed;
-    const stale = connectionIsStale(this, connection);
-    const willDestroy = !!(poolClosed || stale || connection.closed);
-
-    // Properly adjust state of connection
-    if (!willDestroy) {
-      connection.markAvailable();
-
-      this[kConnections].push(connection);
-    }
-
-    this.emit('connectionCheckedIn', new ConnectionCheckedInEvent(this, connection));
-
-    if (willDestroy) {
-      const reason = connection.closed ? 'error' : poolClosed ? 'poolClosed' : 'stale';
-      destroyConnection(this, connection, reason);
-    }
-
-    processWaitQueue(this);
-  }
-
-  /**
-   * Clear the pool
-   *
-   * Pool reset is handled by incrementing the pool's generation count. Any existing connection of a
-   * previous generation will eventually be pruned during subsequent checkouts.
-   */
-  clear() {
-    this[kGeneration] += 1;
-    this.emit('connectionPoolCleared', new ConnectionPoolClearedEvent(this));
-  }
-
-  /**
-   * Close the pool
-   *
-   * @param {object} [options] Optional settings
-   * @param {boolean} [options.force] Force close connections
-   * @param {Function} callback
-   */
-  close(options, callback) {
-    if (typeof options === 'function') {
-      callback = options;
-    }
-
-    options = Object.assign({ force: false }, options);
-    if (this.closed) {
-      return callback();
-    }
-
-    // immediately cancel any in-flight connections
-    this[kCancellationToken].emit('cancel');
-
-    // drain the wait queue
-    while (this[kWaitQueue].length) {
-      const waitQueueMember = this[kWaitQueue].pop();
-      clearTimeout(waitQueueMember.timer);
-      if (!waitQueueMember[kCancelled]) {
-        waitQueueMember.callback(new MongoError('connection pool closed'));
-      }
-    }
-
-    // clear the min pool size timer
-    if (this[kMinPoolSizeTimer]) {
-      clearTimeout(this[kMinPoolSizeTimer]);
-    }
-
-    // end the connection counter
-    if (typeof this[kConnectionCounter].return === 'function') {
-      this[kConnectionCounter].return();
-    }
-
-    // mark the pool as closed immediately
-    this.closed = true;
-
-    eachAsync(
-      this[kConnections].toArray(),
-      (conn, cb) => {
-        this.emit('connectionClosed', new ConnectionClosedEvent(this, conn, 'poolClosed'));
-        conn.destroy(options, cb);
-      },
-      err => {
-        this[kConnections].clear();
-        this.emit('connectionPoolClosed', new ConnectionPoolClosedEvent(this));
-        callback(err);
-      }
-    );
-  }
-
-  /**
-   * Runs a lambda with an implicitly checked out connection, checking that connection back in when the lambda
-   * has completed by calling back.
-   *
-   * NOTE: please note the required signature of `fn`
-   *
-   * @param {ConnectionPool~withConnectionCallback} fn A function which operates on a managed connection
-   * @param {Function} callback The original callback
-   * @return {Promise}
-   */
-  withConnection(fn, callback) {
-    this.checkOut((err, conn) => {
-      // don't callback with `err` here, we might want to act upon it inside `fn`
-
-      fn(err, conn, (fnErr, result) => {
-        if (typeof callback === 'function') {
-          if (fnErr) {
-            callback(fnErr);
-          } else {
-            callback(undefined, result);
-          }
-        }
-
-        if (conn) {
-          this.checkIn(conn);
-        }
-      });
-    });
-  }
-}
-
-function ensureMinPoolSize(pool) {
-  if (pool.closed || pool.options.minPoolSize === 0) {
-    return;
-  }
-
-  const minPoolSize = pool.options.minPoolSize;
-  for (let i = pool.totalConnectionCount; i < minPoolSize; ++i) {
-    createConnection(pool);
-  }
-
-  pool[kMinPoolSizeTimer] = setTimeout(() => ensureMinPoolSize(pool), 10);
-}
-
-function connectionIsStale(pool, connection) {
-  return connection.generation !== pool[kGeneration];
-}
-
-function connectionIsIdle(pool, connection) {
-  return !!(pool.options.maxIdleTimeMS && connection.idleTime > pool.options.maxIdleTimeMS);
-}
-
-function createConnection(pool, callback) {
-  const connectOptions = Object.assign(
-    {
-      id: pool[kConnectionCounter].next().value,
-      generation: pool[kGeneration]
-    },
-    pool.options
-  );
-
-  pool[kPermits]--;
-  connect(connectOptions, pool[kCancellationToken], (err, connection) => {
-    if (err) {
-      pool[kPermits]++;
-      pool[kLogger].debug(`connection attempt failed with error [${JSON.stringify(err)}]`);
-      if (typeof callback === 'function') {
-        callback(err);
-      }
-
-      return;
-    }
-
-    // The pool might have closed since we started trying to create a connection
-    if (pool.closed) {
-      connection.destroy({ force: true });
-      return;
-    }
-
-    // forward all events from the connection to the pool
-    relayEvents(connection, pool, [
-      'commandStarted',
-      'commandFailed',
-      'commandSucceeded',
-      'clusterTimeReceived'
-    ]);
-
-    pool.emit('connectionCreated', new ConnectionCreatedEvent(pool, connection));
-
-    connection.markAvailable();
-    pool.emit('connectionReady', new ConnectionReadyEvent(pool, connection));
-
-    // if a callback has been provided, check out the connection immediately
-    if (typeof callback === 'function') {
-      callback(undefined, connection);
-      return;
-    }
-
-    // otherwise add it to the pool for later acquisition, and try to process the wait queue
-    pool[kConnections].push(connection);
-    processWaitQueue(pool);
-  });
-}
-
-function destroyConnection(pool, connection, reason) {
-  pool.emit('connectionClosed', new ConnectionClosedEvent(pool, connection, reason));
-
-  // allow more connections to be created
-  pool[kPermits]++;
-
-  // destroy the connection
-  process.nextTick(() => connection.destroy());
-}
-
-function processWaitQueue(pool) {
-  if (pool.closed) {
-    return;
-  }
-
-  while (pool[kWaitQueue].length && pool.availableConnectionCount) {
-    const waitQueueMember = pool[kWaitQueue].peekFront();
-    if (waitQueueMember[kCancelled]) {
-      pool[kWaitQueue].shift();
-      continue;
-    }
-
-    const connection = pool[kConnections].shift();
-    const isStale = connectionIsStale(pool, connection);
-    const isIdle = connectionIsIdle(pool, connection);
-    if (!isStale && !isIdle && !connection.closed) {
-      pool.emit('connectionCheckedOut', new ConnectionCheckedOutEvent(pool, connection));
-      clearTimeout(waitQueueMember.timer);
-      pool[kWaitQueue].shift();
-      waitQueueMember.callback(undefined, connection);
-      return;
-    }
-
-    const reason = connection.closed ? 'error' : isStale ? 'stale' : 'idle';
-    destroyConnection(pool, connection, reason);
-  }
-
-  const maxPoolSize = pool.options.maxPoolSize;
-  if (pool[kWaitQueue].length && (maxPoolSize <= 0 || pool.totalConnectionCount < maxPoolSize)) {
-    createConnection(pool, (err, connection) => {
-      const waitQueueMember = pool[kWaitQueue].shift();
-      if (waitQueueMember == null) {
-        if (err == null) {
-          pool[kConnections].push(connection);
-        }
-
-        return;
-      }
-
-      if (waitQueueMember[kCancelled]) {
-        return;
-      }
-
-      if (err) {
-        pool.emit('connectionCheckOutFailed', new ConnectionCheckOutFailedEvent(pool, err));
-      } else {
-        pool.emit('connectionCheckedOut', new ConnectionCheckedOutEvent(pool, connection));
-      }
-
-      clearTimeout(waitQueueMember.timer);
-      waitQueueMember.callback(err, connection);
-    });
-
-    return;
-  }
-}
-
-/**
- * A callback provided to `withConnection`
- *
- * @callback ConnectionPool~withConnectionCallback
- * @param {MongoError} error An error instance representing the error during the execution.
- * @param {Connection} connection The managed connection which was checked out of the pool.
- * @param {Function} callback A function to call back after connection management is complete
- */
-
-/**
- * A callback provided to `checkOut`
- *
- * @callback ConnectionPool~checkOutCallback
- * @param {MongoError} error An error instance representing the error during checkout
- * @param {Connection} connection A connection from the pool
- */
-
-/**
- * Emitted once when the connection pool is created
- *
- * @event ConnectionPool#connectionPoolCreated
- * @type {PoolCreatedEvent}
- */
-
-/**
- * Emitted once when the connection pool is closed
- *
- * @event ConnectionPool#connectionPoolClosed
- * @type {PoolClosedEvent}
- */
-
-/**
- * Emitted each time a connection is created
- *
- * @event ConnectionPool#connectionCreated
- * @type {ConnectionCreatedEvent}
- */
-
-/**
- * Emitted when a connection becomes established, and is ready to use
- *
- * @event ConnectionPool#connectionReady
- * @type {ConnectionReadyEvent}
- */
-
-/**
- * Emitted when a connection is closed
- *
- * @event ConnectionPool#connectionClosed
- * @type {ConnectionClosedEvent}
- */
-
-/**
- * Emitted when an attempt to check out a connection begins
- *
- * @event ConnectionPool#connectionCheckOutStarted
- * @type {ConnectionCheckOutStartedEvent}
- */
-
-/**
- * Emitted when an attempt to check out a connection fails
- *
- * @event ConnectionPool#connectionCheckOutFailed
- * @type {ConnectionCheckOutFailedEvent}
- */
-
-/**
- * Emitted each time a connection is successfully checked out of the connection pool
- *
- * @event ConnectionPool#connectionCheckedOut
- * @type {ConnectionCheckedOutEvent}
- */
-
-/**
- * Emitted each time a connection is successfully checked into the connection pool
- *
- * @event ConnectionPool#connectionCheckedIn
- * @type {ConnectionCheckedInEvent}
- */
-
-/**
- * Emitted each time the connection pool is cleared and it's generation incremented
- *
- * @event ConnectionPool#connectionPoolCleared
- * @type {PoolClearedEvent}
- */
-
-module.exports = {
-  ConnectionPool
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/cmap/errors.js":
-/*!*************************************************!*\
-  !*** ./node_modules/mongodb/lib/cmap/errors.js ***!
-  \*************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-const MongoError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-
-/**
- * An error indicating a connection pool is closed
- *
- * @property {string} address The address of the connection pool
- * @extends MongoError
- */
-class PoolClosedError extends MongoError {
-  constructor(pool) {
-    super('Attempted to check out a connection from closed connection pool');
-    this.name = 'MongoPoolClosedError';
-    this.address = pool.address;
-  }
-}
-
-/**
- * An error thrown when a request to check out a connection times out
- *
- * @property {string} address The address of the connection pool
- * @extends MongoError
- */
-class WaitQueueTimeoutError extends MongoError {
-  constructor(pool) {
-    super('Timed out while checking out a connection from connection pool');
-    this.name = 'MongoWaitQueueTimeoutError';
-    this.address = pool.address;
-  }
-}
-
-module.exports = {
-  PoolClosedError,
-  WaitQueueTimeoutError
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/cmap/events.js":
-/*!*************************************************!*\
-  !*** ./node_modules/mongodb/lib/cmap/events.js ***!
-  \*************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-/**
- * The base class for all monitoring events published from the connection pool
- *
- * @property {number} time A timestamp when the event was created
- * @property {string} address The address (host/port pair) of the pool
- */
-class ConnectionPoolMonitoringEvent {
-  constructor(pool) {
-    this.time = new Date();
-    this.address = pool.address;
-  }
-}
-
-/**
- * An event published when a connection pool is created
- *
- * @property {Object} options The options used to create this connection pool
- */
-class ConnectionPoolCreatedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool) {
-    super(pool);
-    this.options = pool.options;
-  }
-}
-
-/**
- * An event published when a connection pool is closed
- */
-class ConnectionPoolClosedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool) {
-    super(pool);
-  }
-}
-
-/**
- * An event published when a connection pool creates a new connection
- *
- * @property {number} connectionId A monotonically increasing, per-pool id for the newly created connection
- */
-class ConnectionCreatedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool, connection) {
-    super(pool);
-    this.connectionId = connection.id;
-  }
-}
-
-/**
- * An event published when a connection is ready for use
- *
- * @property {number} connectionId The id of the connection
- */
-class ConnectionReadyEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool, connection) {
-    super(pool);
-    this.connectionId = connection.id;
-  }
-}
-
-/**
- * An event published when a connection is closed
- *
- * @property {number} connectionId The id of the connection
- * @property {string} reason The reason the connection was closed
- */
-class ConnectionClosedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool, connection, reason) {
-    super(pool);
-    this.connectionId = connection.id;
-    this.reason = reason || 'unknown';
-  }
-}
-
-/**
- * An event published when a request to check a connection out begins
- */
-class ConnectionCheckOutStartedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool) {
-    super(pool);
-  }
-}
-
-/**
- * An event published when a request to check a connection out fails
- *
- * @property {string} reason The reason the attempt to check out failed
- */
-class ConnectionCheckOutFailedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool, reason) {
-    super(pool);
-    this.reason = reason;
-  }
-}
-
-/**
- * An event published when a connection is checked out of the connection pool
- *
- * @property {number} connectionId The id of the connection
- */
-class ConnectionCheckedOutEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool, connection) {
-    super(pool);
-    this.connectionId = connection.id;
-  }
-}
-
-/**
- * An event published when a connection is checked into the connection pool
- *
- * @property {number} connectionId The id of the connection
- */
-class ConnectionCheckedInEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool, connection) {
-    super(pool);
-    this.connectionId = connection.id;
-  }
-}
-
-/**
- * An event published when a connection pool is cleared
- */
-class ConnectionPoolClearedEvent extends ConnectionPoolMonitoringEvent {
-  constructor(pool) {
-    super(pool);
-  }
-}
-
-const CMAP_EVENT_NAMES = [
-  'connectionPoolCreated',
-  'connectionPoolClosed',
-  'connectionCreated',
-  'connectionReady',
-  'connectionClosed',
-  'connectionCheckOutStarted',
-  'connectionCheckOutFailed',
-  'connectionCheckedOut',
-  'connectionCheckedIn',
-  'connectionPoolCleared'
-];
-
-module.exports = {
-  CMAP_EVENT_NAMES,
-  ConnectionPoolCreatedEvent,
-  ConnectionPoolClosedEvent,
-  ConnectionCreatedEvent,
-  ConnectionReadyEvent,
-  ConnectionClosedEvent,
-  ConnectionCheckOutStartedEvent,
-  ConnectionCheckOutFailedEvent,
-  ConnectionCheckedOutEvent,
-  ConnectionCheckedInEvent,
-  ConnectionPoolClearedEvent
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/cmap/message_stream.js":
-/*!*********************************************************!*\
-  !*** ./node_modules/mongodb/lib/cmap/message_stream.js ***!
-  \*********************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-const Duplex = __webpack_require__(/*! stream */ "stream").Duplex;
-const BufferList = __webpack_require__(/*! bl */ "./node_modules/bl/bl.js");
-const MongoParseError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoParseError;
-const decompress = __webpack_require__(/*! ../core/wireprotocol/compression */ "./node_modules/mongodb/lib/core/wireprotocol/compression.js").decompress;
-const Response = __webpack_require__(/*! ../core/connection/commands */ "./node_modules/mongodb/lib/core/connection/commands.js").Response;
-const BinMsg = __webpack_require__(/*! ../core/connection/msg */ "./node_modules/mongodb/lib/core/connection/msg.js").BinMsg;
-const MongoError = __webpack_require__(/*! ../core/error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const OP_COMPRESSED = __webpack_require__(/*! ../core/wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").opcodes.OP_COMPRESSED;
-const OP_MSG = __webpack_require__(/*! ../core/wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").opcodes.OP_MSG;
-const MESSAGE_HEADER_SIZE = __webpack_require__(/*! ../core/wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").MESSAGE_HEADER_SIZE;
-const COMPRESSION_DETAILS_SIZE = __webpack_require__(/*! ../core/wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").COMPRESSION_DETAILS_SIZE;
-const opcodes = __webpack_require__(/*! ../core/wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").opcodes;
-const compress = __webpack_require__(/*! ../core/wireprotocol/compression */ "./node_modules/mongodb/lib/core/wireprotocol/compression.js").compress;
-const compressorIDs = __webpack_require__(/*! ../core/wireprotocol/compression */ "./node_modules/mongodb/lib/core/wireprotocol/compression.js").compressorIDs;
-const uncompressibleCommands = __webpack_require__(/*! ../core/wireprotocol/compression */ "./node_modules/mongodb/lib/core/wireprotocol/compression.js").uncompressibleCommands;
-const Msg = __webpack_require__(/*! ../core/connection/msg */ "./node_modules/mongodb/lib/core/connection/msg.js").Msg;
-
-const kDefaultMaxBsonMessageSize = 1024 * 1024 * 16 * 4;
-const kBuffer = Symbol('buffer');
-
-/**
- * A duplex stream that is capable of reading and writing raw wire protocol messages, with
- * support for optional compression
- */
-class MessageStream extends Duplex {
-  constructor(options) {
-    options = options || {};
-    super(options);
-
-    this.bson = options.bson;
-    this.maxBsonMessageSize = options.maxBsonMessageSize || kDefaultMaxBsonMessageSize;
-
-    this[kBuffer] = new BufferList();
-  }
-
-  _write(chunk, _, callback) {
-    const buffer = this[kBuffer];
-    buffer.append(chunk);
-
-    processIncomingData(this, callback);
-  }
-
-  _read(/* size */) {
-    // NOTE: This implementation is empty because we explicitly push data to be read
-    //       when `writeMessage` is called.
-    return;
-  }
-
-  writeCommand(command, operationDescription) {
-    // TODO: agreed compressor should live in `StreamDescription`
-    const shouldCompress = operationDescription && !!operationDescription.agreedCompressor;
-    if (!shouldCompress || !canCompress(command)) {
-      const data = command.toBin();
-      this.push(Array.isArray(data) ? Buffer.concat(data) : data);
-      return;
-    }
-
-    // otherwise, compress the message
-    const concatenatedOriginalCommandBuffer = Buffer.concat(command.toBin());
-    const messageToBeCompressed = concatenatedOriginalCommandBuffer.slice(MESSAGE_HEADER_SIZE);
-
-    // Extract information needed for OP_COMPRESSED from the uncompressed message
-    const originalCommandOpCode = concatenatedOriginalCommandBuffer.readInt32LE(12);
-
-    // Compress the message body
-    compress({ options: operationDescription }, messageToBeCompressed, (err, compressedMessage) => {
-      if (err) {
-        operationDescription.cb(err, null);
-        return;
-      }
-
-      // Create the msgHeader of OP_COMPRESSED
-      const msgHeader = Buffer.alloc(MESSAGE_HEADER_SIZE);
-      msgHeader.writeInt32LE(
-        MESSAGE_HEADER_SIZE + COMPRESSION_DETAILS_SIZE + compressedMessage.length,
-        0
-      ); // messageLength
-      msgHeader.writeInt32LE(command.requestId, 4); // requestID
-      msgHeader.writeInt32LE(0, 8); // responseTo (zero)
-      msgHeader.writeInt32LE(opcodes.OP_COMPRESSED, 12); // opCode
-
-      // Create the compression details of OP_COMPRESSED
-      const compressionDetails = Buffer.alloc(COMPRESSION_DETAILS_SIZE);
-      compressionDetails.writeInt32LE(originalCommandOpCode, 0); // originalOpcode
-      compressionDetails.writeInt32LE(messageToBeCompressed.length, 4); // Size of the uncompressed compressedMessage, excluding the MsgHeader
-      compressionDetails.writeUInt8(compressorIDs[operationDescription.agreedCompressor], 8); // compressorID
-
-      this.push(Buffer.concat([msgHeader, compressionDetails, compressedMessage]));
-    });
-  }
-}
-
-// Return whether a command contains an uncompressible command term
-// Will return true if command contains no uncompressible command terms
-function canCompress(command) {
-  const commandDoc = command instanceof Msg ? command.command : command.query;
-  const commandName = Object.keys(commandDoc)[0];
-  return !uncompressibleCommands.has(commandName);
-}
-
-function processIncomingData(stream, callback) {
-  const buffer = stream[kBuffer];
-  if (buffer.length < 4) {
-    callback();
-    return;
-  }
-
-  const sizeOfMessage = buffer.readInt32LE(0);
-  if (sizeOfMessage < 0) {
-    callback(new MongoParseError(`Invalid message size: ${sizeOfMessage}`));
-    return;
-  }
-
-  if (sizeOfMessage > stream.maxBsonMessageSize) {
-    callback(
-      new MongoParseError(
-        `Invalid message size: ${sizeOfMessage}, max allowed: ${stream.maxBsonMessageSize}`
-      )
-    );
-    return;
-  }
-
-  if (sizeOfMessage > buffer.length) {
-    callback();
-    return;
-  }
-
-  const message = buffer.slice(0, sizeOfMessage);
-  buffer.consume(sizeOfMessage);
-
-  const messageHeader = {
-    length: message.readInt32LE(0),
-    requestId: message.readInt32LE(4),
-    responseTo: message.readInt32LE(8),
-    opCode: message.readInt32LE(12)
-  };
-
-  let ResponseType = messageHeader.opCode === OP_MSG ? BinMsg : Response;
-  const responseOptions = stream.responseOptions;
-  if (messageHeader.opCode !== OP_COMPRESSED) {
-    const messageBody = message.slice(MESSAGE_HEADER_SIZE);
-    stream.emit(
-      'message',
-      new ResponseType(stream.bson, message, messageHeader, messageBody, responseOptions)
-    );
-
-    if (buffer.length >= 4) {
-      processIncomingData(stream, callback);
-    } else {
-      callback();
-    }
-
-    return;
-  }
-
-  messageHeader.fromCompressed = true;
-  messageHeader.opCode = message.readInt32LE(MESSAGE_HEADER_SIZE);
-  messageHeader.length = message.readInt32LE(MESSAGE_HEADER_SIZE + 4);
-  const compressorID = message[MESSAGE_HEADER_SIZE + 8];
-  const compressedBuffer = message.slice(MESSAGE_HEADER_SIZE + 9);
-
-  // recalculate based on wrapped opcode
-  ResponseType = messageHeader.opCode === OP_MSG ? BinMsg : Response;
-
-  decompress(compressorID, compressedBuffer, (err, messageBody) => {
-    if (err) {
-      callback(err);
-      return;
-    }
-
-    if (messageBody.length !== messageHeader.length) {
-      callback(
-        new MongoError(
-          'Decompressing a compressed message from the server failed. The message is corrupt.'
-        )
-      );
-
-      return;
-    }
-
-    stream.emit(
-      'message',
-      new ResponseType(stream.bson, message, messageHeader, messageBody, responseOptions)
-    );
-
-    if (buffer.length >= 4) {
-      processIncomingData(stream, callback);
-    } else {
-      callback();
-    }
-  });
-}
-
-module.exports = MessageStream;
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/cmap/stream_description.js":
-/*!*************************************************************!*\
-  !*** ./node_modules/mongodb/lib/cmap/stream_description.js ***!
-  \*************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-const parseServerType = __webpack_require__(/*! ../core/sdam/server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").parseServerType;
-
-const RESPONSE_FIELDS = [
-  'minWireVersion',
-  'maxWireVersion',
-  'maxBsonObjectSize',
-  'maxMessageSizeBytes',
-  'maxWriteBatchSize',
-  '__nodejs_mock_server__'
-];
-
-class StreamDescription {
-  constructor(address, options) {
-    this.address = address;
-    this.type = parseServerType(null);
-    this.minWireVersion = undefined;
-    this.maxWireVersion = undefined;
-    this.maxBsonObjectSize = 16777216;
-    this.maxMessageSizeBytes = 48000000;
-    this.maxWriteBatchSize = 100000;
-    this.compressors =
-      options && options.compression && Array.isArray(options.compression.compressors)
-        ? options.compression.compressors
-        : [];
-  }
-
-  receiveResponse(response) {
-    this.type = parseServerType(response);
-
-    RESPONSE_FIELDS.forEach(field => {
-      if (typeof response[field] !== 'undefined') {
-        this[field] = response[field];
-      }
-    });
-
-    if (response.compression) {
-      this.compressor = this.compressors.filter(c => response.compression.indexOf(c) !== -1)[0];
-    }
-  }
-}
-
-module.exports = {
-  StreamDescription
-};
-
-
-/***/ }),
-
 /***/ "./node_modules/mongodb/lib/collection.js":
 /*!************************************************!*\
   !*** ./node_modules/mongodb/lib/collection.js ***!
@@ -13110,6 +10324,12 @@ const mergeKeys = ['ignoreUndefined'];
 /**
  * Create a new Collection instance (INTERNAL TYPE, do not instantiate directly)
  * @class
+ * @property {string} collectionName Get the collection name.
+ * @property {string} namespace Get the full collection namespace.
+ * @property {object} writeConcern The current write concern values.
+ * @property {object} readConcern The current read concern values.
+ * @property {object} hint Get current index hint for collection.
+ * @return {Collection} a Collection instance.
  */
 function Collection(db, topology, dbName, name, pkFactory, options) {
   checkCollectionName(name);
@@ -13183,12 +10403,6 @@ function Collection(db, topology, dbName, name, pkFactory, options) {
   };
 }
 
-/**
- * The name of the database this collection belongs to
- * @member {string} dbName
- * @memberof Collection#
- * @readonly
- */
 Object.defineProperty(Collection.prototype, 'dbName', {
   enumerable: true,
   get: function() {
@@ -13196,12 +10410,6 @@ Object.defineProperty(Collection.prototype, 'dbName', {
   }
 });
 
-/**
- * The name of this collection
- * @member {string} collectionName
- * @memberof Collection#
- * @readonly
- */
 Object.defineProperty(Collection.prototype, 'collectionName', {
   enumerable: true,
   get: function() {
@@ -13209,12 +10417,6 @@ Object.defineProperty(Collection.prototype, 'collectionName', {
   }
 });
 
-/**
- * The namespace of this collection, in the format `${this.dbName}.${this.collectionName}`
- * @member {string} namespace
- * @memberof Collection#
- * @readonly
- */
 Object.defineProperty(Collection.prototype, 'namespace', {
   enumerable: true,
   get: function() {
@@ -13222,13 +10424,6 @@ Object.defineProperty(Collection.prototype, 'namespace', {
   }
 });
 
-/**
- * The current readConcern of the collection. If not explicitly defined for
- * this collection, will be inherited from the parent DB
- * @member {ReadConcern} [readConcern]
- * @memberof Collection#
- * @readonly
- */
 Object.defineProperty(Collection.prototype, 'readConcern', {
   enumerable: true,
   get: function() {
@@ -13239,13 +10434,6 @@ Object.defineProperty(Collection.prototype, 'readConcern', {
   }
 });
 
-/**
- * The current readPreference of the collection. If not explicitly defined for
- * this collection, will be inherited from the parent DB
- * @member {ReadPreference} [readPreference]
- * @memberof Collection#
- * @readonly
- */
 Object.defineProperty(Collection.prototype, 'readPreference', {
   enumerable: true,
   get: function() {
@@ -13257,13 +10445,6 @@ Object.defineProperty(Collection.prototype, 'readPreference', {
   }
 });
 
-/**
- * The current writeConcern of the collection. If not explicitly defined for
- * this collection, will be inherited from the parent DB
- * @member {WriteConcern} [writeConcern]
- * @memberof Collection#
- * @readonly
- */
 Object.defineProperty(Collection.prototype, 'writeConcern', {
   enumerable: true,
   get: function() {
@@ -13275,9 +10456,7 @@ Object.defineProperty(Collection.prototype, 'writeConcern', {
 });
 
 /**
- * The current index hint for the collection
- * @member {object} [hint]
- * @memberof Collection#
+ * @ignore
  */
 Object.defineProperty(Collection.prototype, 'hint', {
   enumerable: true,
@@ -13298,7 +10477,7 @@ const DEPRECATED_FIND_OPTIONS = ['maxScan', 'fields', 'snapshot'];
  * @param {object} [options] Optional settings.
  * @param {number} [options.limit=0] Sets the limit of documents returned in the query.
  * @param {(array|object)} [options.sort] Set to sort the documents coming back from the query. Array of indexes, [['a', 1]] etc.
- * @param {object} [options.projection] The fields to return in the query. Object of fields to either include or exclude (one of, not both), {'a':1, 'b': 1} **or** {'a': 0, 'b': 0}
+ * @param {object} [options.projection] The fields to return in the query. Object of fields to include or exclude (not both), {'a':1}
  * @param {object} [options.fields] **Deprecated** Use `options.projection` instead
  * @param {number} [options.skip=0] Set to skip N documents ahead in your query (useful for pagination).
  * @param {Object} [options.hint] Tell the query to use specific indexes in the query. Object of indexes to use, {'_id':1}
@@ -13306,8 +10485,7 @@ const DEPRECATED_FIND_OPTIONS = ['maxScan', 'fields', 'snapshot'];
  * @param {boolean} [options.snapshot=false] DEPRECATED: Snapshot query.
  * @param {boolean} [options.timeout=false] Specify if the cursor can timeout.
  * @param {boolean} [options.tailable=false] Specify if the cursor is tailable.
- * @param {boolean} [options.awaitData=false] Specify if the cursor is a a tailable-await cursor. Requires `tailable` to be true
- * @param {number} [options.batchSize=1000] Set the batchSize for the getMoreCommand when iterating over the query results.
+ * @param {number} [options.batchSize=0] Set the batchSize for the getMoreCommand when iterating over the query results.
  * @param {boolean} [options.returnKey=false] Only return the index key.
  * @param {number} [options.maxScan] DEPRECATED: Limit the number of items to scan.
  * @param {number} [options.min] Set index bounds.
@@ -13321,8 +10499,6 @@ const DEPRECATED_FIND_OPTIONS = ['maxScan', 'fields', 'snapshot'];
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
  * @param {boolean} [options.partial=false] Specify if the cursor should return partial results when querying against a sharded system
  * @param {number} [options.maxTimeMS] Number of milliseconds to wait before aborting the query.
- * @param {number} [options.maxAwaitTimeMS] The maximum amount of time for the server to wait on new documents to satisfy a tailable cursor query. Requires `taiable` and `awaitData` to be true
- * @param {boolean} [options.noCursorTimeout] The server normally times out idle cursors after an inactivity period (10 minutes) to prevent excess memory use. Set this option to prevent that.
  * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @throws {MongoError}
@@ -13500,14 +10676,12 @@ Collection.prototype.find = deprecateOptions(
  * @method
  * @param {object} doc Document to insert.
  * @param {object} [options] Optional settings.
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {boolean} [options.forceServerObjectId=false] Force server to assign _id values instead of driver.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=true] If true, will throw if bson documents start with `$` or include a `.` in any key value
  * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
+ * @param {boolean} [options.forceServerObjectId=false] Force server to assign _id values instead of driver.
+ * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~insertOneWriteOpCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -13535,15 +10709,13 @@ Collection.prototype.insertOne = function(doc, options, callback) {
  * @method
  * @param {object[]} docs Documents to insert.
  * @param {object} [options] Optional settings.
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {boolean} [options.ordered=true] If true, when an insert fails, don't execute the remaining writes. If false, continue with remaining inserts when one fails.
- * @param {boolean} [options.forceServerObjectId=false] Force server to assign _id values instead of driver.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=true] If true, will throw if bson documents start with `$` or include a `.` in any key value
  * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
+ * @param {boolean} [options.forceServerObjectId=false] Force server to assign _id values instead of driver.
+ * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
+ * @param {boolean} [options.ordered=true] If true, when an insert fails, don't execute the remaining writes. If false, continue with remaining inserts when one fails.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~insertWriteOpCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -13602,15 +10774,13 @@ Collection.prototype.insertMany = function(docs, options, callback) {
  * @method
  * @param {object[]} operations Bulk operations to perform.
  * @param {object} [options] Optional settings.
- * @param {boolean} [options.ordered=true] Execute write operation in ordered or unordered fashion.
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
  * @param {object[]} [options.arrayFilters] Determines which array elements to modify for update operation in MongoDB 3.6 or higher.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
  * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
+ * @param {boolean} [options.ordered=true] Execute write operation in ordered or unordered fashion.
+ * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~bulkWriteOpCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -13644,24 +10814,24 @@ Collection.prototype.bulkWrite = function(operations, options, callback) {
 
 /**
  * @typedef {Object} Collection~insertWriteOpResult
- * @property {number} insertedCount The total amount of documents inserted.
+ * @property {Number} insertedCount The total amount of documents inserted.
  * @property {object[]} ops All the documents inserted using insertOne/insertMany/replaceOne. Documents contain the _id field if forceServerObjectId == false for insertOne/insertMany
  * @property {Object.<Number, ObjectId>} insertedIds Map of the index of the inserted document to the id of the inserted document.
  * @property {object} connection The connection object used for the operation.
  * @property {object} result The raw command result object returned from MongoDB (content might vary by server version).
- * @property {number} result.ok Is 1 if the command executed correctly.
- * @property {number} result.n The total count of documents inserted.
+ * @property {Number} result.ok Is 1 if the command executed correctly.
+ * @property {Number} result.n The total count of documents inserted.
  */
 
 /**
  * @typedef {Object} Collection~insertOneWriteOpResult
- * @property {number} insertedCount The total amount of documents inserted.
+ * @property {Number} insertedCount The total amount of documents inserted.
  * @property {object[]} ops All the documents inserted using insertOne/insertMany/replaceOne. Documents contain the _id field if forceServerObjectId == false for insertOne/insertMany
  * @property {ObjectId} insertedId The driver generated ObjectId for the insert operation.
  * @property {object} connection The connection object used for the operation.
  * @property {object} result The raw command result object returned from MongoDB (content might vary by server version).
- * @property {number} result.ok Is 1 if the command executed correctly.
- * @property {number} result.n The total count of documents inserted.
+ * @property {Number} result.ok Is 1 if the command executed correctly.
+ * @property {Number} result.n The total count of documents inserted.
  */
 
 /**
@@ -13721,8 +10891,8 @@ Collection.prototype.insert = deprecate(function(docs, options, callback) {
  * @property {Number} upsertedCount The number of documents upserted.
  * @property {Object} upsertedId The upserted id.
  * @property {ObjectId} upsertedId._id The upserted _id returned from the server.
- * @property {Object} message The raw msg response wrapped in an internal class
- * @property {object[]} [ops] In a response to {@link Collection#replaceOne replaceOne}, contains the new value of the document on the server. This is the same document that was originally passed in, and is only here for legacy purposes.
+ * @property {Object} message
+ * @property {Array} ops
  */
 
 /**
@@ -13738,17 +10908,12 @@ Collection.prototype.insert = deprecate(function(docs, options, callback) {
  * @param {object} filter The Filter used to select the document to update
  * @param {object} update The update operations to be applied to the document
  * @param {object} [options] Optional settings.
- * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
- * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
- * @param {boolean} [options.upsert=false] When true, creates a new document if no document matches the query..
+ * @param {boolean} [options.upsert=false] Update operation is an upsert.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
+ * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
+ * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~updateWriteOpCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -13782,19 +10947,14 @@ Collection.prototype.updateOne = function(filter, update, options, callback) {
  * @param {object} filter The Filter used to select the document to replace
  * @param {object} doc The Document that replaces the matching document
  * @param {object} [options] Optional settings.
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
- * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
- * @param {boolean} [options.upsert=false] When true, creates a new document if no document matches the query.
+ * @param {boolean} [options.upsert=false] Update operation is an upsert.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
+ * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~updateWriteOpCallback} [callback] The command result callback
- * @return {Promise<Collection~updateWriteOpResult>} returns Promise if no callback passed
+ * @return {Promise<Collection~updatewriteOpResultObject>} returns Promise if no callback passed
  */
 Collection.prototype.replaceOne = function(filter, doc, options, callback) {
   if (typeof options === 'function') (callback = options), (options = {});
@@ -13817,20 +10977,14 @@ Collection.prototype.replaceOne = function(filter, doc, options, callback) {
  * @param {object} filter The Filter used to select the documents to update
  * @param {object} update The update operations to be applied to the documents
  * @param {object} [options] Optional settings.
- * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
- * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
- * @param {boolean} [options.upsert=false] When true, creates a new document if no document matches the query..
+ * @param {boolean} [options.upsert=false] Update operation is an upsert.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
+ * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~updateWriteOpCallback} [callback] The command result callback
- * @return {Promise<Collection~updateWriteOpResult>} returns Promise if no callback passed
+ * @return {Promise<Collection~updateWriteOpResultObject>} returns Promise if no callback passed
  */
 Collection.prototype.updateMany = function(filter, update, options, callback) {
   if (typeof options === 'function') (callback = options), (options = {});
@@ -13870,7 +11024,6 @@ Collection.prototype.updateMany = function(filter, update, options, callback) {
  * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
  * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
  * @param {ClientSession} [options.session] optional session to use for this operation
- * @param {object} [options.hint] An optional hint for query optimization. See the {@link https://docs.mongodb.com/manual/reference/command/update/#update-command-hint|update command} reference for more information.
  * @param {Collection~writeOpCallback} [callback] The command result callback
  * @throws {MongoError}
  * @return {Promise} returns Promise if no callback passed
@@ -13905,7 +11058,7 @@ Collection.prototype.update = deprecate(function(selector, update, options, call
  */
 
 /**
- * The callback format for deletes
+ * The callback format for inserts
  * @callback Collection~deleteWriteOpCallback
  * @param {MongoError} error An error instance representing the error during the execution.
  * @param {Collection~deleteWriteOpResult} result The result object if the command was executed successfully.
@@ -13916,13 +11069,9 @@ Collection.prototype.update = deprecate(function(selector, update, options, call
  * @method
  * @param {object} filter The Filter used to select the document to remove
  * @param {object} [options] Optional settings.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~deleteWriteOpCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -13949,13 +11098,9 @@ Collection.prototype.removeOne = Collection.prototype.deleteOne;
  * @method
  * @param {object} filter The Filter used to select the documents to remove
  * @param {object} [options] Optional settings.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~deleteWriteOpCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -13982,7 +11127,6 @@ Collection.prototype.removeMany = Collection.prototype.deleteMany;
  * @method
  * @param {object} selector The selector for the update operation.
  * @param {object} [options] Optional settings.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
  * @param {boolean} [options.j=false] Specify a journal write concern.
@@ -14066,7 +11210,7 @@ Collection.prototype.save = deprecate(function(doc, options, callback) {
  * @param {boolean} [options.snapshot=false] DEPRECATED: Snapshot query.
  * @param {boolean} [options.timeout=false] Specify if the cursor can timeout.
  * @param {boolean} [options.tailable=false] Specify if the cursor is tailable.
- * @param {number} [options.batchSize=1] Set the batchSize for the getMoreCommand when iterating over the query results.
+ * @param {number} [options.batchSize=0] Set the batchSize for the getMoreCommand when iterating over the query results.
  * @param {boolean} [options.returnKey=false] Only return the index key.
  * @param {number} [options.maxScan] DEPRECATED: Limit the number of items to scan.
  * @param {number} [options.min] Set index bounds.
@@ -14200,7 +11344,7 @@ Collection.prototype.isCapped = function(options, callback) {
 /**
  * Creates an index on the db and collection collection.
  * @method
- * @param {(string|array|object)} fieldOrSpec Defines the index.
+ * @param {(string|object)} fieldOrSpec Defines the index.
  * @param {object} [options] Optional settings.
  * @param {(number|string)} [options.w] The write concern.
  * @param {number} [options.wtimeout] The write concern timeout.
@@ -14219,25 +11363,6 @@ Collection.prototype.isCapped = function(options, callback) {
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~resultCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
- * @example
- * const collection = client.db('foo').collection('bar');
- *
- * await collection.createIndex({ a: 1, b: -1 });
- *
- * // Alternate syntax for { c: 1, d: -1 } that ensures order of indexes
- * await collection.createIndex([ [c, 1], [d, -1] ]);
- *
- * // Equivalent to { e: 1 }
- * await collection.createIndex('e');
- *
- * // Equivalent to { f: 1, g: 1 }
- * await collection.createIndex(['f', 'g'])
- *
- * // Equivalent to { h: 1, i: -1 }
- * await collection.createIndex([ { h: 1 }, { i: -1 } ]);
- *
- * // Equivalent to { j: 1, k: -1, l: 2d }
- * await collection.createIndex(['j', ['k', -1], { l: '2d' }])
  */
 Collection.prototype.createIndex = function(fieldOrSpec, options, callback) {
   if (typeof options === 'function') (callback = options), (options = {});
@@ -14254,42 +11379,15 @@ Collection.prototype.createIndex = function(fieldOrSpec, options, callback) {
 };
 
 /**
- * @typedef {object} Collection~IndexDefinition
- * @description A definition for an index. Used by the createIndex command.
- * @see https://docs.mongodb.com/manual/reference/command/createIndexes/
- */
-
-/**
  * Creates multiple indexes in the collection, this method is only supported for
  * MongoDB 2.6 or higher. Earlier version of MongoDB will throw a command not supported
- * error.
- *
- * **Note**: Unlike {@link Collection#createIndex createIndex}, this function takes in raw index specifications.
- * Index specifications are defined {@link http://docs.mongodb.org/manual/reference/command/createIndexes/ here}.
- *
+ * error. Index specifications are defined at http://docs.mongodb.org/manual/reference/command/createIndexes/.
  * @method
- * @param {Collection~IndexDefinition[]} indexSpecs An array of index specifications to be created
+ * @param {array} indexSpecs An array of index specifications to be created
  * @param {Object} [options] Optional settings
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~resultCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
- * @example
- * const collection = client.db('foo').collection('bar');
- * await collection.createIndexes([
- *   // Simple index on field fizz
- *   {
- *     key: { fizz: 1 },
- *   }
- *   // wildcard index
- *   {
- *     key: { '$**': 1 }
- *   },
- *   // named index on darmok and jalad
- *   {
- *     key: { darmok: 1, jalad: -1 }
- *     name: 'tanagra'
- *   }
- * ]);
  */
 Collection.prototype.createIndexes = function(indexSpecs, options, callback) {
   if (typeof options === 'function') (callback = options), (options = {});
@@ -14383,7 +11481,7 @@ Collection.prototype.reIndex = function(options, callback) {
  *
  * @method
  * @param {object} [options] Optional settings.
- * @param {number} [options.batchSize=1000] The batchSize for the returned command cursor or if pre 2.8 the systems batch collection
+ * @param {number} [options.batchSize] The batchSize for the returned command cursor or if pre 2.8 the systems batch collection
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @return {CommandCursor}
@@ -14482,16 +11580,10 @@ Collection.prototype.indexInformation = function(options, callback) {
  */
 
 /**
- * An estimated count of matching documents in the db to a query.
- *
- * **NOTE:** This method has been deprecated, since it does not provide an accurate count of the documents
- * in a collection. To obtain an accurate count of documents in the collection, use {@link Collection#countDocuments countDocuments}.
- * To obtain an estimated count of all documents in the collection, use {@link Collection#estimatedDocumentCount estimatedDocumentCount}.
- *
+ * Count number of matching documents in the db to a query.
  * @method
  * @param {object} [query={}] The query for the count.
  * @param {object} [options] Optional settings.
- * @param {object} [options.collation] Specify collation settings for operation. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {boolean} [options.limit] The limit of documents to count.
  * @param {boolean} [options.skip] The number of documents to skip for the count.
  * @param {string} [options.hint] An index name hint for the query.
@@ -14584,11 +11676,10 @@ Collection.prototype.countDocuments = function(query, options, callback) {
  * The distinct command returns a list of distinct values for the given key across a collection.
  * @method
  * @param {string} key Field of the document to find distinct values for.
- * @param {object} [query] The query for filtering the set of documents to which we apply the distinct filter.
+ * @param {object} query The query for filtering the set of documents to which we apply the distinct filter.
  * @param {object} [options] Optional settings.
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
  * @param {number} [options.maxTimeMS] Number of milliseconds to wait before aborting the query.
- * @param {object} [options.collation] Specify collation settings for operation. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~resultCallback} [callback] The command result callback
  * @return {Promise} returns Promise if no callback passed
@@ -14644,7 +11735,7 @@ Collection.prototype.stats = function(options, callback) {
 /**
  * @typedef {Object} Collection~findAndModifyWriteOpResult
  * @property {object} value Document returned from the `findAndModify` command. If no documents were found, `value` will be `null` by default (`returnOriginal: true`), even if a document was upserted; if `returnOriginal` was false, the upserted document will be returned in that case.
- * @property {object} lastErrorObject The raw lastErrorObject returned from the command. See {@link https://docs.mongodb.com/manual/reference/command/findAndModify/index.html#lasterrorobject|findAndModify command documentation}.
+ * @property {object} lastErrorObject The raw lastErrorObject returned from the command.
  * @property {Number} ok Is 1 if the command executed correctly.
  */
 
@@ -14661,13 +11752,9 @@ Collection.prototype.stats = function(options, callback) {
  * @method
  * @param {object} filter The Filter used to select the document to remove
  * @param {object} [options] Optional settings.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
  * @param {object} [options.projection] Limits the fields to return for all matching documents.
  * @param {object} [options.sort] Determines which document the operation modifies if the query selects multiple documents.
  * @param {number} [options.maxTimeMS] The maximum amount of time to allow the query to run.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~findAndModifyCallback} [callback] The collection result callback
  * @return {Promise<Collection~findAndModifyWriteOpResultObject>} returns Promise if no callback passed
@@ -14692,16 +11779,11 @@ Collection.prototype.findOneAndDelete = function(filter, options, callback) {
  * @param {object} filter The Filter used to select the document to replace
  * @param {object} replacement The Document that replaces the matching document
  * @param {object} [options] Optional settings.
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
- * @param {number} [options.maxTimeMS] The maximum amount of time to allow the query to run.
  * @param {object} [options.projection] Limits the fields to return for all matching documents.
  * @param {object} [options.sort] Determines which document the operation modifies if the query selects multiple documents.
+ * @param {number} [options.maxTimeMS] The maximum amount of time to allow the query to run.
  * @param {boolean} [options.upsert=false] Upsert the document if it does not exist.
  * @param {boolean} [options.returnOriginal=true] When false, returns the updated document rather than the original. The default is true.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @param {Collection~findAndModifyCallback} [callback] The collection result callback
  * @return {Promise<Collection~findAndModifyWriteOpResultObject>} returns Promise if no callback passed
@@ -14740,18 +11822,13 @@ Collection.prototype.findOneAndReplace = function(filter, replacement, options, 
  * @param {object} filter The Filter used to select the document to update
  * @param {object} update Update operations to be performed on the document
  * @param {object} [options] Optional settings.
- * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
- * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
- * @param {object} [options.collation] Specify collation (MongoDB 3.4 or higher) settings for update operation (see 3.4 documentation for available fields).
- * @param {number} [options.maxTimeMS] The maximum amount of time to allow the query to run.
  * @param {object} [options.projection] Limits the fields to return for all matching documents.
  * @param {object} [options.sort] Determines which document the operation modifies if the query selects multiple documents.
+ * @param {number} [options.maxTimeMS] The maximum amount of time to allow the query to run.
  * @param {boolean} [options.upsert=false] Upsert the document if it does not exist.
  * @param {boolean} [options.returnOriginal=true] When false, returns the updated document rather than the original. The default is true.
- * @param {boolean} [options.checkKeys=false] If true, will throw if bson documents start with `$` or include a `.` in any key value
- * @param {boolean} [options.serializeFunctions=false] Serialize functions on any object.
- * @param {boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
  * @param {ClientSession} [options.session] optional session to use for this operation
+ * @param {Array} [options.arrayFilters] optional list of array filters referenced in filtered positional operators
  * @param {Collection~findAndModifyCallback} [callback] The collection result callback
  * @return {Promise<Collection~findAndModifyWriteOpResultObject>} returns Promise if no callback passed
  */
@@ -14863,13 +11940,11 @@ Collection.prototype.findAndRemove = deprecate(function(query, sort, options, ca
  * @param {object} [pipeline=[]] Array containing all the aggregation framework commands for the execution.
  * @param {object} [options] Optional settings.
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
- * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {object} [options.cursor] Return the query as cursor, on 2.6 > it returns as a real cursor on pre 2.6 it returns as an emulated cursor.
- * @param {number} [options.cursor.batchSize=1000] Deprecated. Use `options.batchSize`
+ * @param {number} [options.cursor.batchSize] The batchSize for the cursor
  * @param {boolean} [options.explain=false] Explain returns the aggregation execution plan (requires mongodb 2.6 >).
  * @param {boolean} [options.allowDiskUse=false] allowDiskUse lets the server know if it can use disk to store temporary results for the aggregation (requires mongodb 2.6 >).
  * @param {number} [options.maxTimeMS] maxTimeMS specifies a cumulative time limit in milliseconds for processing operations on the cursor. MongoDB interrupts the operation at the earliest following interrupt point.
- * @param {number} [options.maxAwaitTimeMS] The maximum amount of time for the server to wait on new documents to satisfy a tailable cursor query.
  * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
  * @param {boolean} [options.raw=false] Return document results as raw BSON buffers.
  * @param {boolean} [options.promoteLongs=true] Promotes Long values to number if they fit inside the 53 bits resolution.
@@ -14942,7 +12017,7 @@ Collection.prototype.aggregate = function(pipeline, options, callback) {
  * @param {string} [options.fullDocument='default'] Allowed values: ‘default’, ‘updateLookup’. When set to ‘updateLookup’, the change stream will include both a delta describing the changes to the document, as well as a copy of the entire document that was changed from some time after the change occurred.
  * @param {object} [options.resumeAfter] Specifies the logical starting point for the new change stream. This should be the _id field from a previously returned change stream document.
  * @param {number} [options.maxAwaitTimeMS] The maximum amount of time for the server to wait on new documents to satisfy a change stream query
- * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
+ * @param {number} [options.batchSize] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {object} [options.collation] Specify collation settings for operation. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {ReadPreference} [options.readPreference] The read preference. Defaults to the read preference of the database or collection. See {@link https://docs.mongodb.com/manual/reference/read-preference|read preference documentation}.
  * @param {Timestamp} [options.startAtOperationTime] receive change events that occur after the specified timestamp
@@ -14975,7 +12050,7 @@ Collection.prototype.watch = function(pipeline, options) {
  * @method
  * @param {object} [options] Optional settings.
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
- * @param {number} [options.batchSize=1000] Set the batchSize for the getMoreCommand when iterating over the query results.
+ * @param {number} [options.batchSize] Set the batchSize for the getMoreCommand when iterating over the query results.
  * @param {number} [options.numCursors=1] The maximum number of parallel command cursors to return (the number of returned cursors will be in the range 1:numCursors)
  * @param {boolean} [options.raw=false] Return all BSON documents as Raw Buffer documents.
  * @param {Collection~parallelCollectionScanCallback} [callback] The command result callback
@@ -15314,7 +12389,7 @@ class CommandCursor extends Cursor {
   /**
    * Set the batch size for the cursor.
    * @method
-   * @param {number} value The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/find/|find command documentation}.
+   * @param {number} value The batchSize for the cursor.
    * @throws {MongoError}
    * @return {CommandCursor}
    */
@@ -16205,7 +13280,7 @@ const Binary = BSON.Binary;
 
 let saslprep;
 try {
-  saslprep = __webpack_require__(/*! saslprep */ "./node_modules/saslprep/index.js");
+  saslprep = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module 'saslprep'"); e.code = 'MODULE_NOT_FOUND'; throw e; }()));
 } catch (e) {
   // don't do anything;
 }
@@ -16213,6 +13288,7 @@ try {
 var parsePayload = function(payload) {
   var dict = {};
   var parts = payload.split(',');
+
   for (var i = 0; i < parts.length; i++) {
     var valueParts = parts[i].split('=');
     dict[valueParts[0]] = valueParts[1];
@@ -16298,23 +13374,6 @@ function HI(data, salt, iterations, cryptoMethod) {
   return saltedData;
 }
 
-function compareDigest(lhs, rhs) {
-  if (lhs.length !== rhs.length) {
-    return false;
-  }
-
-  if (typeof crypto.timingSafeEqual === 'function') {
-    return crypto.timingSafeEqual(lhs, rhs);
-  }
-
-  let result = 0;
-  for (let i = 0; i < lhs.length; i++) {
-    result |= lhs[i] ^ rhs[i];
-  }
-
-  return result === 0;
-}
-
 /**
  * Creates a new ScramSHA authentication mechanism
  * @class
@@ -16389,19 +13448,9 @@ class ScramSHA extends AuthProvider {
 
       const payload = Buffer.isBuffer(r.payload) ? new Binary(r.payload) : r.payload;
       const dict = parsePayload(payload.value());
-
       const iterations = parseInt(dict.i, 10);
-      if (iterations && iterations < 4096) {
-        callback(new MongoError(`Server returned an invalid iteration count ${iterations}`), false);
-        return;
-      }
-
       const salt = dict.s;
       const rnonce = dict.r;
-      if (rnonce.startsWith('nonce')) {
-        callback(new MongoError(`Server returned an invalid nonce: ${rnonce}`), false);
-        return;
-      }
 
       // Set up start of proof
       const withoutProof = `c=biws,r=${rnonce}`;
@@ -16412,17 +13461,18 @@ class ScramSHA extends AuthProvider {
         cryptoMethod
       );
 
+      if (iterations && iterations < 4096) {
+        const error = new MongoError(`Server returned an invalid iteration count ${iterations}`);
+        return callback(error, false);
+      }
+
       const clientKey = HMAC(cryptoMethod, saltedPassword, 'Client Key');
-      const serverKey = HMAC(cryptoMethod, saltedPassword, 'Server Key');
       const storedKey = H(cryptoMethod, clientKey);
       const authMessage = [firstBare, payload.value().toString('base64'), withoutProof].join(',');
 
       const clientSignature = HMAC(cryptoMethod, storedKey, authMessage);
       const clientProof = `p=${xor(clientKey, clientSignature)}`;
       const clientFinal = [withoutProof, clientProof].join(',');
-
-      const serverSignature = HMAC(cryptoMethod, serverKey, authMessage);
-
       const saslContinueCmd = {
         saslContinue: 1,
         conversationId: r.conversationId,
@@ -16430,17 +13480,6 @@ class ScramSHA extends AuthProvider {
       };
 
       sendAuthCommand(connection, `${db}.$cmd`, saslContinueCmd, (err, r) => {
-        if (err || (r && typeof r.ok === 'number' && r.ok === 0)) {
-          callback(err, r);
-          return;
-        }
-
-        const parsedResponse = parsePayload(r.payload.value());
-        if (!compareDigest(Buffer.from(parsedResponse.v, 'base64'), serverSignature)) {
-          callback(new MongoError('Server returned an invalid signature'));
-          return;
-        }
-
         if (!r || r.done !== false) {
           return callback(err, r);
         }
@@ -16738,10 +13777,8 @@ const extractCommandName = commandDoc => Object.keys(commandDoc)[0];
 const namespace = command => command.ns;
 const databaseName = command => command.ns.split('.')[0];
 const collectionName = command => command.ns.split('.')[1];
-const generateConnectionId = pool =>
-  pool.options ? `${pool.options.host}:${pool.options.port}` : pool.address;
+const generateConnectionId = pool => `${pool.options.host}:${pool.options.port}`;
 const maybeRedact = (commandName, result) => (SENSITIVE_COMMANDS.has(commandName) ? {} : result);
-const isLegacyPool = pool => pool.s && pool.queue;
 
 const LEGACY_FIND_QUERY_MAP = {
   $query: 'filter',
@@ -16865,23 +13902,10 @@ const extractReply = (command, reply) => {
     };
   }
 
-  return reply && reply.result ? reply.result : reply;
-};
+  // in the event of a `noResponse` command, just return
+  if (reply === null) return reply;
 
-const extractConnectionDetails = pool => {
-  if (isLegacyPool(pool)) {
-    return {
-      connectionId: generateConnectionId(pool)
-    };
-  }
-
-  // APM in the modern pool is done at the `Connection` level, so we rename it here for
-  // readability.
-  const connection = pool;
-  return {
-    address: connection.address,
-    connectionId: connection.id
-  };
+  return reply.result;
 };
 
 /** An event indicating the start of a given command */
@@ -16895,7 +13919,6 @@ class CommandStartedEvent {
   constructor(pool, command) {
     const cmd = extractCommand(command);
     const commandName = extractCommandName(cmd);
-    const connectionDetails = extractConnectionDetails(pool);
 
     // NOTE: remove in major revision, this is not spec behavior
     if (SENSITIVE_COMMANDS.has(commandName)) {
@@ -16903,11 +13926,12 @@ class CommandStartedEvent {
       this.commandObj[commandName] = true;
     }
 
-    Object.assign(this, connectionDetails, {
-      requestId: command.requestId,
+    Object.assign(this, {
+      command: cmd,
       databaseName: databaseName(command),
       commandName,
-      command: cmd
+      requestId: command.requestId,
+      connectionId: generateConnectionId(pool)
     });
   }
 }
@@ -16925,13 +13949,13 @@ class CommandSucceededEvent {
   constructor(pool, command, reply, started) {
     const cmd = extractCommand(command);
     const commandName = extractCommandName(cmd);
-    const connectionDetails = extractConnectionDetails(pool);
 
-    Object.assign(this, connectionDetails, {
-      requestId: command.requestId,
-      commandName,
+    Object.assign(this, {
       duration: calculateDurationInMs(started),
-      reply: maybeRedact(commandName, extractReply(command, reply))
+      commandName,
+      reply: maybeRedact(commandName, extractReply(command, reply)),
+      requestId: command.requestId,
+      connectionId: generateConnectionId(pool)
     });
   }
 }
@@ -16949,13 +13973,13 @@ class CommandFailedEvent {
   constructor(pool, command, error, started) {
     const cmd = extractCommand(command);
     const commandName = extractCommandName(cmd);
-    const connectionDetails = extractConnectionDetails(pool);
 
-    Object.assign(this, connectionDetails, {
-      requestId: command.requestId,
-      commandName,
+    Object.assign(this, {
       duration: calculateDurationInMs(started),
-      failure: maybeRedact(commandName, error)
+      commandName,
+      failure: maybeRedact(commandName, error),
+      requestId: command.requestId,
+      connectionId: generateConnectionId(pool)
     });
   }
 }
@@ -17549,41 +14573,51 @@ const net = __webpack_require__(/*! net */ "net");
 const tls = __webpack_require__(/*! tls */ "tls");
 const Connection = __webpack_require__(/*! ./connection */ "./node_modules/mongodb/lib/core/connection/connection.js");
 const Query = __webpack_require__(/*! ./commands */ "./node_modules/mongodb/lib/core/connection/commands.js").Query;
+const createClientInfo = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createClientInfo;
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
 const MongoNetworkError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoNetworkError;
 const defaultAuthProviders = __webpack_require__(/*! ../auth/defaultAuthProviders */ "./node_modules/mongodb/lib/core/auth/defaultAuthProviders.js").defaultAuthProviders;
 const WIRE_CONSTANTS = __webpack_require__(/*! ../wireprotocol/constants */ "./node_modules/mongodb/lib/core/wireprotocol/constants.js");
-const makeClientMetadata = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeClientMetadata;
 const MAX_SUPPORTED_WIRE_VERSION = WIRE_CONSTANTS.MAX_SUPPORTED_WIRE_VERSION;
 const MAX_SUPPORTED_SERVER_VERSION = WIRE_CONSTANTS.MAX_SUPPORTED_SERVER_VERSION;
 const MIN_SUPPORTED_WIRE_VERSION = WIRE_CONSTANTS.MIN_SUPPORTED_WIRE_VERSION;
 const MIN_SUPPORTED_SERVER_VERSION = WIRE_CONSTANTS.MIN_SUPPORTED_SERVER_VERSION;
 let AUTH_PROVIDERS;
 
-function connect(options, cancellationToken, callback) {
-  if (typeof cancellationToken === 'function') {
-    callback = cancellationToken;
-    cancellationToken = undefined;
-  }
-
-  const ConnectionType = options && options.connectionType ? options.connectionType : Connection;
+function connect(options, callback) {
   if (AUTH_PROVIDERS == null) {
     AUTH_PROVIDERS = defaultAuthProviders(options.bson);
   }
 
-  const family = options.family !== void 0 ? options.family : 0;
-  makeConnection(family, options, cancellationToken, (err, socket) => {
+  if (options.family !== void 0) {
+    makeConnection(options.family, options, (err, socket) => {
+      if (err) {
+        callback(err, socket); // in the error case, `socket` is the originating error event name
+        return;
+      }
+
+      performInitialHandshake(new Connection(socket, options), options, callback);
+    });
+
+    return;
+  }
+
+  return makeConnection(6, options, (err, ipv6Socket) => {
     if (err) {
-      callback(err, socket); // in the error case, `socket` is the originating error event name
+      makeConnection(4, options, (err, ipv4Socket) => {
+        if (err) {
+          callback(err, ipv4Socket); // in the error case, `ipv4Socket` is the originating error event name
+          return;
+        }
+
+        performInitialHandshake(new Connection(ipv4Socket, options), options, callback);
+      });
+
       return;
     }
 
-    performInitialHandshake(new ConnectionType(socket, options), options, callback);
+    performInitialHandshake(new Connection(ipv6Socket, options), options, callback);
   });
-}
-
-function isModernConnectionType(conn) {
-  return typeof conn.command === 'function';
 }
 
 function getSaslSupportedMechs(options) {
@@ -17624,7 +14658,9 @@ function checkSupportedServer(ismaster, options) {
       return null;
     }
 
-    const message = `Server at ${options.host}:${options.port} reports minimum wire version ${ismaster.minWireVersion}, but this version of the Node.js Driver requires at most ${MAX_SUPPORTED_WIRE_VERSION} (MongoDB ${MAX_SUPPORTED_SERVER_VERSION})`;
+    const message = `Server at ${options.host}:${options.port} reports minimum wire version ${
+      ismaster.minWireVersion
+    }, but this version of the Node.js Driver requires at most ${MAX_SUPPORTED_WIRE_VERSION} (MongoDB ${MAX_SUPPORTED_SERVER_VERSION})`;
     return new MongoError(message);
   }
 
@@ -17651,51 +14687,42 @@ function performInitialHandshake(conn, options, _callback) {
   const handshakeDoc = Object.assign(
     {
       ismaster: true,
-      client: options.metadata || makeClientMetadata(options),
+      client: createClientInfo(options),
       compression: compressors
     },
     getSaslSupportedMechs(options)
   );
 
-  const handshakeOptions = Object.assign({}, options);
-
-  // The handshake technically is a monitoring check, so its socket timeout should be connectTimeoutMS
-  if (options.connectTimeoutMS || options.connectionTimeout) {
-    handshakeOptions.socketTimeout = options.connectTimeoutMS || options.connectionTimeout;
-  }
-
   const start = new Date().getTime();
-  runCommand(conn, 'admin.$cmd', handshakeDoc, handshakeOptions, (err, ismaster) => {
+  runCommand(conn, 'admin.$cmd', handshakeDoc, options, (err, ismaster) => {
     if (err) {
-      callback(err);
+      callback(err, null);
       return;
     }
 
     if (ismaster.ok === 0) {
-      callback(new MongoError(ismaster));
+      callback(new MongoError(ismaster), null);
       return;
     }
 
     const supportedServerErr = checkSupportedServer(ismaster, options);
     if (supportedServerErr) {
-      callback(supportedServerErr);
+      callback(supportedServerErr, null);
       return;
     }
 
-    if (!isModernConnectionType(conn)) {
-      // resolve compression
-      if (ismaster.compression) {
-        const agreedCompressors = compressors.filter(
-          compressor => ismaster.compression.indexOf(compressor) !== -1
-        );
+    // resolve compression
+    if (ismaster.compression) {
+      const agreedCompressors = compressors.filter(
+        compressor => ismaster.compression.indexOf(compressor) !== -1
+      );
 
-        if (agreedCompressors.length) {
-          conn.agreedCompressor = agreedCompressors[0];
-        }
+      if (agreedCompressors.length) {
+        conn.agreedCompressor = agreedCompressors[0];
+      }
 
-        if (options.compression && options.compression.zlibCompressionLevel) {
-          conn.zlibCompressionLevel = options.compression.zlibCompressionLevel;
-        }
+      if (options.compression && options.compression.zlibCompressionLevel) {
+        conn.zlibCompressionLevel = options.compression.zlibCompressionLevel;
       }
     }
 
@@ -17712,7 +14739,7 @@ function performInitialHandshake(conn, options, _callback) {
       return;
     }
 
-    callback(undefined, conn);
+    callback(null, conn);
   });
 }
 
@@ -17780,19 +14807,14 @@ function parseSslOptions(family, options) {
   return result;
 }
 
-const SOCKET_ERROR_EVENTS = new Set(['error', 'close', 'timeout', 'parseError']);
-function makeConnection(family, options, cancellationToken, _callback) {
+function makeConnection(family, options, _callback) {
   const useSsl = typeof options.ssl === 'boolean' ? options.ssl : false;
   const keepAlive = typeof options.keepAlive === 'boolean' ? options.keepAlive : true;
   let keepAliveInitialDelay =
     typeof options.keepAliveInitialDelay === 'number' ? options.keepAliveInitialDelay : 300000;
   const noDelay = typeof options.noDelay === 'boolean' ? options.noDelay : true;
   const connectionTimeout =
-    typeof options.connectionTimeout === 'number'
-      ? options.connectionTimeout
-      : typeof options.connectTimeoutMS === 'number'
-      ? options.connectTimeoutMS
-      : 30000;
+    typeof options.connectionTimeout === 'number' ? options.connectionTimeout : 30000;
   const socketTimeout = typeof options.socketTimeout === 'number' ? options.socketTimeout : 360000;
   const rejectUnauthorized =
     typeof options.rejectUnauthorized === 'boolean' ? options.rejectUnauthorized : true;
@@ -17806,7 +14828,6 @@ function makeConnection(family, options, cancellationToken, _callback) {
     if (err && socket) {
       socket.destroy();
     }
-
     _callback(err, ret);
   };
 
@@ -17827,26 +14848,17 @@ function makeConnection(family, options, cancellationToken, _callback) {
   socket.setTimeout(connectionTimeout);
   socket.setNoDelay(noDelay);
 
-  const connectEvent = useSsl ? 'secureConnect' : 'connect';
-  let cancellationHandler;
+  const errorEvents = ['error', 'close', 'timeout', 'parseError'];
   function errorHandler(eventName) {
     return err => {
-      SOCKET_ERROR_EVENTS.forEach(event => socket.removeAllListeners(event));
-      if (cancellationHandler) {
-        cancellationToken.removeListener('cancel', cancellationHandler);
-      }
-
-      socket.removeListener(connectEvent, connectHandler);
-      callback(connectionFailureError(eventName, err));
+      errorEvents.forEach(event => socket.removeAllListeners(event));
+      socket.removeListener('connect', connectHandler);
+      callback(connectionFailureError(eventName, err), eventName);
     };
   }
 
   function connectHandler() {
-    SOCKET_ERROR_EVENTS.forEach(event => socket.removeAllListeners(event));
-    if (cancellationHandler) {
-      cancellationToken.removeListener('cancel', cancellationHandler);
-    }
-
+    errorEvents.forEach(event => socket.removeAllListeners(event));
     if (socket.authorizationError && rejectUnauthorized) {
       return callback(socket.authorizationError);
     }
@@ -17855,34 +14867,16 @@ function makeConnection(family, options, cancellationToken, _callback) {
     callback(null, socket);
   }
 
-  SOCKET_ERROR_EVENTS.forEach(event => socket.once(event, errorHandler(event)));
-  if (cancellationToken) {
-    cancellationHandler = errorHandler('cancel');
-    cancellationToken.once('cancel', cancellationHandler);
-  }
-
-  socket.once(connectEvent, connectHandler);
+  socket.once('error', errorHandler('error'));
+  socket.once('close', errorHandler('close'));
+  socket.once('timeout', errorHandler('timeout'));
+  socket.once('parseError', errorHandler('parseError'));
+  socket.once('connect', connectHandler);
 }
 
 const CONNECTION_ERROR_EVENTS = ['error', 'close', 'timeout', 'parseError'];
 function runCommand(conn, ns, command, options, callback) {
   if (typeof options === 'function') (callback = options), (options = {});
-
-  // are we using the new connection type? if so, no need to simulate a rpc `command` method
-  if (isModernConnectionType(conn)) {
-    conn.command(ns, command, options, (err, result) => {
-      if (err) {
-        callback(err);
-        return;
-      }
-
-      // NODE-2382: raw wire protocol messages, or command results should not be used anymore
-      callback(undefined, result.result);
-    });
-
-    return;
-  }
-
   const socketTimeout = typeof options.socketTimeout === 'number' ? options.socketTimeout : 360000;
   const bson = conn.options.bson;
   const query = new Query(bson, ns, command, {
@@ -17890,25 +14884,11 @@ function runCommand(conn, ns, command, options, callback) {
     numberToReturn: 1
   });
 
-  const noop = () => {};
-  function _callback(err, result) {
-    callback(err, result);
-    callback = noop;
-  }
-
   function errorHandler(err) {
     conn.resetSocketTimeout();
     CONNECTION_ERROR_EVENTS.forEach(eventName => conn.removeListener(eventName, errorHandler));
     conn.removeListener('message', messageHandler);
-
-    if (err == null) {
-      err = new MongoError(`runCommand failed for connection to '${conn.address}'`);
-    }
-
-    // ignore all future errors
-    conn.on('error', noop);
-
-    _callback(err);
+    callback(err, null);
   }
 
   function messageHandler(msg) {
@@ -17921,7 +14901,7 @@ function runCommand(conn, ns, command, options, callback) {
     conn.removeListener('message', messageHandler);
 
     msg.parse({ promoteValues: true });
-    _callback(undefined, msg.documents[0]);
+    callback(null, msg.documents[0]);
   }
 
   conn.setSocketTimeout(socketTimeout);
@@ -17940,7 +14920,7 @@ function authenticate(conn, credentials, callback) {
   const provider = AUTH_PROVIDERS[mechanism];
   provider.auth(runCommand, [conn], credentials, err => {
     if (err) return callback(err);
-    callback(undefined, conn);
+    callback(null, conn);
   });
 }
 
@@ -17952,8 +14932,6 @@ function connectionFailureError(type, err) {
       return new MongoNetworkError(`connection timed out`);
     case 'close':
       return new MongoNetworkError(`connection closed`);
-    case 'cancel':
-      return new MongoNetworkError(`connection establishment was cancelled`);
     default:
       return new MongoNetworkError(`unknown network error`);
   }
@@ -18030,13 +15008,10 @@ class Connection extends EventEmitter {
   /**
    * Creates a new Connection instance
    *
-   * **NOTE**: Internal class, do not instantiate directly
-   *
    * @param {Socket} socket The socket this connection wraps
-   * @param {Object} options Various settings
-   * @param {object} options.bson An implementation of bson serialize and deserialize
-   * @param {string} [options.host='localhost'] The host the socket is connected to
-   * @param {number} [options.port=27017] The port used for the socket connection
+   * @param {Object} [options] Optional settings
+   * @param {string} [options.host] The host the socket is connected to
+   * @param {number} [options.port] The port used for the socket connection
    * @param {boolean} [options.keepAlive=true] TCP Connection keep alive enabled
    * @param {number} [options.keepAliveInitialDelay=300000] Initial delay before TCP keep alive enabled
    * @param {number} [options.connectionTimeout=30000] TCP Connection timeout setting
@@ -18044,7 +15019,6 @@ class Connection extends EventEmitter {
    * @param {boolean} [options.promoteLongs] Convert Long values from the db into Numbers if they fit into 53 bits
    * @param {boolean} [options.promoteValues] Promotes BSON values to native types where possible, set to false to only receive wrapper types.
    * @param {boolean} [options.promoteBuffers] Promotes Binary BSON values to native Node Buffers.
-   * @param {number} [options.maxBsonMessageSize=0x4000000] Largest possible size of a BSON message (for legacy purposes)
    */
   constructor(socket, options) {
     super();
@@ -18098,7 +15072,6 @@ class Connection extends EventEmitter {
     // Internal state
     this.writeStream = null;
     this.destroyed = false;
-    this.timedOut = false;
 
     // Create hash method
     const hash = crypto.createHash('sha1');
@@ -18169,20 +15142,6 @@ class Connection extends EventEmitter {
   }
 
   /**
-   * Flush all work Items on this connection
-   *
-   * @param {*} err The error to propagate to the flushed work items
-   */
-  flush(err) {
-    while (this.workItems.length > 0) {
-      const workItem = this.workItems.shift();
-      if (workItem.cb) {
-        workItem.cb(err);
-      }
-    }
-  }
-
-  /**
    * Destroy connection
    * @method
    */
@@ -18203,7 +15162,7 @@ class Connection extends EventEmitter {
       return;
     }
 
-    if (options.force || this.timedOut) {
+    if (options.force) {
       this.socket.destroy();
       this.destroyed = true;
       if (typeof callback === 'function') callback(null, null);
@@ -18323,7 +15282,6 @@ function timeoutHandler(conn) {
       conn.logger.debug(`connection ${conn.id} for [${conn.address}] timed out`);
     }
 
-    conn.timedOut = true;
     conn.emit(
       'timeout',
       new MongoNetworkError(`connection ${conn.id} to ${conn.address} timed out`),
@@ -18643,18 +15601,13 @@ var pid = process.pid;
 var currentLogger = null;
 
 /**
- * @callback Logger~loggerCallback
- * @param {string} msg message being logged
- * @param {object} state an object containing more metadata about the logging message
- */
-
-/**
  * Creates a new Logger instance
  * @class
  * @param {string} className The Class name associated with the logging instance
  * @param {object} [options=null] Optional settings.
- * @param {Logger~loggerCallback} [options.logger=null] Custom logger function;
+ * @param {Function} [options.logger=null] Custom logger function;
  * @param {string} [options.loggerLevel=error] Override default global log level.
+ * @return {Logger} a Logger instance.
  */
 var Logger = function(className, options) {
   if (!(this instanceof Logger)) return new Logger(className, options);
@@ -18830,7 +15783,7 @@ Logger.reset = function() {
 /**
  * Get the current logger function
  * @method
- * @return {Logger~loggerCallback}
+ * @return {function}
  */
 Logger.currentLogger = function() {
   return currentLogger;
@@ -18839,7 +15792,7 @@ Logger.currentLogger = function() {
 /**
  * Set the current logger function
  * @method
- * @param {Logger~loggerCallback} logger Logger function.
+ * @param {function} logger Logger function.
  * @return {null}
  */
 Logger.setCurrentLogger = function(logger) {
@@ -18920,7 +15873,6 @@ module.exports = Logger;
 //   [uint32     checksum;]
 // };
 
-const Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer;
 const opcodes = __webpack_require__(/*! ../wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").opcodes;
 const databaseNamespace = __webpack_require__(/*! ../wireprotocol/shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").databaseNamespace;
 const ReadPreference = __webpack_require__(/*! ../topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
@@ -18952,7 +15904,7 @@ class Msg {
     this.options = options || {};
 
     // Additional options
-    this.requestId = options.requestId ? options.requestId : Msg.getRequestId();
+    this.requestId = Msg.getRequestId();
 
     // Serialization option
     this.serializeFunctions =
@@ -18965,8 +15917,7 @@ class Msg {
     // flags
     this.checksumPresent = false;
     this.moreToCome = options.moreToCome || false;
-    this.exhaustAllowed =
-      typeof options.exhaustAllowed === 'boolean' ? options.exhaustAllowed : false;
+    this.exhaustAllowed = false;
   }
 
   toBin() {
@@ -18985,7 +15936,7 @@ class Msg {
       flags |= OPTS_EXHAUST_ALLOWED;
     }
 
-    const header = Buffer.alloc(
+    const header = new Buffer(
       4 * 4 + // Header
         4 // Flags
     );
@@ -19005,7 +15956,7 @@ class Msg {
   }
 
   makeDocumentSegment(buffers, document) {
-    const payloadTypeBuffer = Buffer.alloc(1);
+    const payloadTypeBuffer = new Buffer(1);
     payloadTypeBuffer[0] = 0;
 
     const documentBuffer = this.serializeBson(document);
@@ -19130,7 +16081,7 @@ module.exports = { Msg, BinMsg };
 const inherits = __webpack_require__(/*! util */ "util").inherits;
 const EventEmitter = __webpack_require__(/*! events */ "events").EventEmitter;
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const MongoTimeoutError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoTimeoutError;
+const MongoNetworkError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoNetworkError;
 const MongoWriteConcernError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoWriteConcernError;
 const Logger = __webpack_require__(/*! ./logger */ "./node_modules/mongodb/lib/core/connection/logger.js");
 const f = __webpack_require__(/*! util */ "util").format;
@@ -19147,22 +16098,12 @@ const Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffe
 const connect = __webpack_require__(/*! ./connect */ "./node_modules/mongodb/lib/core/connection/connect.js");
 const updateSessionFromResponse = __webpack_require__(/*! ../sessions */ "./node_modules/mongodb/lib/core/sessions.js").updateSessionFromResponse;
 const eachAsync = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").eachAsync;
-const makeStateMachine = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeStateMachine;
 
-const DISCONNECTED = 'disconnected';
-const CONNECTING = 'connecting';
-const CONNECTED = 'connected';
-const DRAINING = 'draining';
-const DESTROYING = 'destroying';
-const DESTROYED = 'destroyed';
-const stateTransition = makeStateMachine({
-  [DISCONNECTED]: [CONNECTING, DRAINING, DISCONNECTED],
-  [CONNECTING]: [CONNECTING, CONNECTED, DRAINING, DISCONNECTED],
-  [CONNECTED]: [CONNECTED, DISCONNECTED, DRAINING],
-  [DRAINING]: [DRAINING, DESTROYING, DESTROYED],
-  [DESTROYING]: [DESTROYING, DESTROYED],
-  [DESTROYED]: [DESTROYED]
-});
+var DISCONNECTED = 'disconnected';
+var CONNECTING = 'connecting';
+var CONNECTED = 'connected';
+var DESTROYING = 'destroying';
+var DESTROYED = 'destroyed';
 
 const CONNECTION_EVENTS = new Set([
   'error',
@@ -19197,7 +16138,7 @@ var _id = 0;
  * @param {Buffer} [options.crl] SSL Certificate revocation store binary buffer
  * @param {Buffer} [options.cert] SSL Certificate binary buffer
  * @param {Buffer} [options.key] SSL Key file binary buffer
- * @param {string} [options.passphrase] SSL Certificate pass phrase
+ * @param {string} [options.passPhrase] SSL Certificate pass phrase
  * @param {boolean} [options.rejectUnauthorized=false] Reject unauthorized server certificates
  * @param {boolean} [options.promoteLongs=true] Convert Long values from the db into Numbers if they fit into 53 bits
  * @param {boolean} [options.promoteValues=true] Promotes BSON values to native types where possible, set to false to only receive wrapper types.
@@ -19216,14 +16157,6 @@ var Pool = function(topology, options) {
 
   // Store topology for later use
   this.topology = topology;
-
-  this.s = {
-    state: DISCONNECTED,
-    cancellationToken: new EventEmitter()
-  };
-
-  // we don't care how many connections are listening for cancellation
-  this.s.cancellationToken.setMaxListeners(Infinity);
 
   // Add the options
   this.options = Object.assign(
@@ -19248,7 +16181,7 @@ var Pool = function(topology, options) {
       crl: null,
       cert: null,
       key: null,
-      passphrase: null,
+      passPhrase: null,
       rejectUnauthorized: false,
       promoteLongs: true,
       promoteValues: true,
@@ -19258,9 +16191,7 @@ var Pool = function(topology, options) {
       reconnectInterval: 1000,
       reconnectTries: 30,
       // Enable domains
-      domainsEnabled: false,
-      // feature flag for determining if we are running with the unified topology or not
-      legacyCompatMode: true
+      domainsEnabled: false
     },
     options
   );
@@ -19270,7 +16201,6 @@ var Pool = function(topology, options) {
   // Current reconnect retries
   this.retriesLeft = this.options.reconnectTries;
   this.reconnectId = null;
-  this.reconnectError = null;
   // No bson parser passed in
   if (
     !options.bson ||
@@ -19283,6 +16213,8 @@ var Pool = function(topology, options) {
 
   // Logger instance
   this.logger = Logger('Pool', options);
+  // Pool state
+  this.state = DISCONNECTED;
   // Connections
   this.availableConnections = [];
   this.inUseConnections = [];
@@ -19291,6 +16223,9 @@ var Pool = function(topology, options) {
   this.executing = false;
   // Operation work queue
   this.queue = [];
+
+  // Contains the reconnect connection
+  this.reconnectConnection = null;
 
   // Number of consecutive timeouts caught
   this.numberOfConsecutiveTimeouts = 0;
@@ -19351,39 +16286,60 @@ Object.defineProperty(Pool.prototype, 'socketTimeout', {
   }
 });
 
-Object.defineProperty(Pool.prototype, 'state', {
-  enumerable: true,
-  get: function() {
-    return this.s.state;
-  }
-});
-
 // clears all pool state
 function resetPoolState(pool) {
   pool.inUseConnections = [];
   pool.availableConnections = [];
   pool.connectingConnections = 0;
   pool.executing = false;
+  pool.reconnectConnection = null;
   pool.numberOfConsecutiveTimeouts = 0;
   pool.connectionIndex = 0;
   pool.retriesLeft = pool.options.reconnectTries;
   pool.reconnectId = null;
 }
 
+function stateTransition(self, newState) {
+  var legalTransitions = {
+    disconnected: [CONNECTING, DESTROYING, DISCONNECTED],
+    connecting: [CONNECTING, DESTROYING, CONNECTED, DISCONNECTED],
+    connected: [CONNECTED, DISCONNECTED, DESTROYING],
+    destroying: [DESTROYING, DESTROYED],
+    destroyed: [DESTROYED]
+  };
+
+  // Get current state
+  var legalStates = legalTransitions[self.state];
+  if (legalStates && legalStates.indexOf(newState) !== -1) {
+    self.emit('stateChanged', self.state, newState);
+    self.state = newState;
+  } else {
+    self.logger.error(
+      f(
+        'Pool with id [%s] failed attempted illegal state transition from [%s] to [%s] only following state allowed [%s]',
+        self.id,
+        self.state,
+        newState,
+        legalStates
+      )
+    );
+  }
+}
+
 function connectionFailureHandler(pool, event, err, conn) {
   if (conn) {
-    if (conn._connectionFailHandled) {
-      return;
-    }
-
+    if (conn._connectionFailHandled) return;
     conn._connectionFailHandled = true;
     conn.destroy();
 
     // Remove the connection
     removeConnection(pool, conn);
 
-    // flush remaining work items
-    conn.flush(err);
+    // Flush all work Items on this connection
+    while (conn.workItems.length > 0) {
+      const workItem = conn.workItems.shift();
+      if (workItem.cb) workItem.cb(err);
+    }
   }
 
   // Did we catch a timeout, increment the numberOfConsecutiveTimeouts
@@ -19403,10 +16359,8 @@ function connectionFailureHandler(pool, event, err, conn) {
 
   // No more socket available propegate the event
   if (pool.socketCount() === 0) {
-    if (pool.state !== DESTROYED && pool.state !== DESTROYING && pool.state !== DRAINING) {
-      if (pool.options.reconnect) {
-        stateTransition(pool, DISCONNECTED);
-      }
+    if (pool.state !== DESTROYED && pool.state !== DESTROYING) {
+      stateTransition(pool, DISCONNECTED);
     }
 
     // Do not emit error events, they are always close events
@@ -19417,60 +16371,73 @@ function connectionFailureHandler(pool, event, err, conn) {
 
   // Start reconnection attempts
   if (!pool.reconnectId && pool.options.reconnect) {
-    pool.reconnectError = err;
     pool.reconnectId = setTimeout(attemptReconnect(pool), pool.options.reconnectInterval);
   }
 
   // Do we need to do anything to maintain the minimum pool size
   const totalConnections = totalConnectionCount(pool);
   if (totalConnections < pool.minSize) {
-    createConnection(pool);
+    _createConnection(pool);
   }
 }
 
-function attemptReconnect(pool, callback) {
+function attemptReconnect(self) {
   return function() {
-    pool.emit('attemptReconnect', pool);
+    self.emit('attemptReconnect', self);
+    if (self.state === DESTROYED || self.state === DESTROYING) return;
 
-    if (pool.state === DESTROYED || pool.state === DESTROYING) {
-      if (typeof callback === 'function') {
-        callback(new MongoError('Cannot create connection when pool is destroyed'));
-      }
-
+    // We are connected do not try again
+    if (self.isConnected()) {
+      self.reconnectId = null;
       return;
     }
 
-    pool.retriesLeft = pool.retriesLeft - 1;
-    if (pool.retriesLeft <= 0) {
-      pool.destroy();
+    self.connectingConnections++;
+    connect(self.options, (err, connection) => {
+      self.connectingConnections--;
 
-      const error = new MongoTimeoutError(
-        `failed to reconnect after ${pool.options.reconnectTries} attempts with interval ${pool.options.reconnectInterval} ms`,
-        pool.reconnectError
-      );
+      if (err) {
+        if (self.logger.isDebug()) {
+          self.logger.debug(`connection attempt failed with error [${JSON.stringify(err)}]`);
+        }
 
-      pool.emit('reconnectFailed', error);
-      if (typeof callback === 'function') {
-        callback(error);
+        self.retriesLeft = self.retriesLeft - 1;
+        if (self.retriesLeft <= 0) {
+          self.destroy();
+          self.emit(
+            'reconnectFailed',
+            new MongoNetworkError(
+              f(
+                'failed to reconnect after %s attempts with interval %s ms',
+                self.options.reconnectTries,
+                self.options.reconnectInterval
+              )
+            )
+          );
+        } else {
+          self.reconnectId = setTimeout(attemptReconnect(self), self.options.reconnectInterval);
+        }
+
+        return;
       }
 
-      return;
-    }
-
-    // clear the reconnect id on retry
-    pool.reconnectId = null;
-
-    // now retry creating a connection
-    createConnection(pool, (err, conn) => {
-      if (err == null) {
-        pool.reconnectId = null;
-        pool.retriesLeft = pool.options.reconnectTries;
-        pool.emit('reconnect', pool);
+      if (self.state === DESTROYED || self.state === DESTROYING) {
+        return connection.destroy();
       }
 
-      if (typeof callback === 'function') {
-        callback(err, conn);
-      }
+      self.reconnectId = null;
+      handlers.forEach(event => connection.removeAllListeners(event));
+      connection.on('error', self._connectionErrorHandler);
+      connection.on('close', self._connectionCloseHandler);
+      connection.on('timeout', self._connectionTimeoutHandler);
+      connection.on('parseError', self._connectionParseErrorHandler);
+      connection.on('message', self._messageHandler);
+
+      self.retriesLeft = self.options.reconnectTries;
+      self.availableConnections.push(connection);
+      self.reconnectConnection = null;
+      self.emit('reconnect', self);
+      _execute(self)();
     });
   };
 }
@@ -19559,7 +16526,7 @@ function messageHandler(self) {
           updateSessionFromResponse(session, document);
         }
 
-        if (self.topology && document.$clusterTime) {
+        if (document.$clusterTime) {
           self.topology.clusterTime = document.$clusterTime;
         }
       }
@@ -19670,42 +16637,69 @@ Pool.prototype.isDisconnected = function() {
 /**
  * Connect pool
  */
-Pool.prototype.connect = function(callback) {
+Pool.prototype.connect = function() {
   if (this.state !== DISCONNECTED) {
     throw new MongoError('connection in unlawful state ' + this.state);
   }
 
+  const self = this;
   stateTransition(this, CONNECTING);
-  createConnection(this, (err, conn) => {
+
+  self.connectingConnections++;
+  connect(self.options, (err, connection) => {
+    self.connectingConnections--;
+
     if (err) {
-      if (typeof callback === 'function') {
-        this.destroy();
-        callback(err);
-        return;
+      if (self.logger.isDebug()) {
+        self.logger.debug(`connection attempt failed with error [${JSON.stringify(err)}]`);
       }
 
-      if (this.state === CONNECTING) {
-        this.emit('error', err);
+      if (self.state === CONNECTING) {
+        self.emit('error', err);
       }
 
-      this.destroy();
       return;
     }
 
-    stateTransition(this, CONNECTED);
+    if (self.state === DESTROYED || self.state === DESTROYING) {
+      return self.destroy();
+    }
 
-    // create min connections
-    if (this.minSize) {
-      for (let i = 0; i < this.minSize; i++) {
-        createConnection(this);
+    // attach event handlers
+    connection.on('error', self._connectionErrorHandler);
+    connection.on('close', self._connectionCloseHandler);
+    connection.on('timeout', self._connectionTimeoutHandler);
+    connection.on('parseError', self._connectionParseErrorHandler);
+    connection.on('message', self._messageHandler);
+
+    // If we are in a topology, delegate the auth to it
+    // This is to avoid issues where we would auth against an
+    // arbiter
+    if (self.options.inTopology) {
+      stateTransition(self, CONNECTED);
+      self.availableConnections.push(connection);
+      return self.emit('connect', self, connection);
+    }
+
+    if (self.state === DESTROYED || self.state === DESTROYING) {
+      return self.destroy();
+    }
+
+    if (err) {
+      self.destroy();
+      return self.emit('error', err);
+    }
+
+    stateTransition(self, CONNECTED);
+    self.availableConnections.push(connection);
+
+    if (self.minSize) {
+      for (let i = 0; i < self.minSize; i++) {
+        _createConnection(self);
       }
     }
 
-    if (typeof callback === 'function') {
-      callback(null, conn);
-    } else {
-      this.emit('connect', this, conn);
-    }
+    self.emit('connect', self, connection);
   });
 };
 
@@ -19740,20 +16734,12 @@ Pool.prototype.unref = function() {
 
 // Destroy the connections
 function destroy(self, connections, options, callback) {
-  stateTransition(self, DESTROYING);
-
-  // indicate that in-flight connections should cancel
-  self.s.cancellationToken.emit('cancel');
-
   eachAsync(
     connections,
     (conn, cb) => {
       for (const eventName of CONNECTION_EVENTS) {
         conn.removeAllListeners(eventName);
       }
-
-      // ignore any errors during destruction
-      conn.on('error', () => {});
 
       conn.destroy(options, cb);
     },
@@ -19778,19 +16764,14 @@ function destroy(self, connections, options, callback) {
  */
 Pool.prototype.destroy = function(force, callback) {
   var self = this;
-  if (typeof force === 'function') {
-    callback = force;
-    force = false;
-  }
-
   // Do not try again if the pool is already dead
   if (this.state === DESTROYED || self.state === DESTROYING) {
     if (typeof callback === 'function') callback(null, null);
     return;
   }
 
-  // Set state to draining
-  stateTransition(this, DRAINING);
+  // Set state to destroyed
+  stateTransition(this, DESTROYING);
 
   // Are we force closing
   if (force) {
@@ -19815,16 +16796,14 @@ Pool.prototype.destroy = function(force, callback) {
     clearTimeout(this.reconnectId);
   }
 
+  // If we have a reconnect connection running, close
+  // immediately
+  if (this.reconnectConnection) {
+    this.reconnectConnection.destroy();
+  }
+
   // Wait for the operations to drain before we close the pool
   function checkStatus() {
-    if (self.state === DESTROYED || self.state === DESTROYING) {
-      if (typeof callback === 'function') {
-        callback();
-      }
-
-      return;
-    }
-
     flushMonitoringOperations(self.queue);
 
     if (self.queue.length === 0) {
@@ -19841,6 +16820,7 @@ Pool.prototype.destroy = function(force, callback) {
       }
 
       destroy(self, connections, { force: false }, callback);
+      // } else if (self.queue.length > 0 && !this.reconnectId) {
     } else {
       // Ensure we empty the queue
       _execute(self)();
@@ -19859,18 +16839,6 @@ Pool.prototype.destroy = function(force, callback) {
  * @param {function} [callback]
  */
 Pool.prototype.reset = function(callback) {
-  if (this.s.state !== CONNECTED) {
-    if (typeof callback === 'function') {
-      callback(new MongoError('pool is not connected, reset aborted'));
-    }
-
-    return;
-  }
-
-  // signal in-flight connections should be cancelled
-  this.s.cancellationToken.emit('cancel');
-
-  // destroy existing connections
   const connections = this.availableConnections.concat(this.inUseConnections);
   eachAsync(
     connections,
@@ -19891,12 +16859,12 @@ Pool.prototype.reset = function(callback) {
 
       resetPoolState(this);
 
-      // create a new connection, this will ultimately trigger execution
-      createConnection(this, () => {
-        if (typeof callback === 'function') {
-          callback(null, null);
-        }
-      });
+      // create an initial connection, and kick off execution again
+      _createConnection(this);
+
+      if (typeof callback === 'function') {
+        callback(null, null);
+      }
     }
   );
 };
@@ -19964,12 +16932,17 @@ Pool.prototype.write = function(command, options, cb) {
 
   // Pool was destroyed error out
   if (this.state === DESTROYED || this.state === DESTROYING) {
-    cb(new MongoError('pool destroyed'));
-    return;
-  }
+    // Callback with an error
+    if (cb) {
+      try {
+        cb(new MongoError('pool destroyed'));
+      } catch (err) {
+        process.nextTick(function() {
+          throw err;
+        });
+      }
+    }
 
-  if (this.state === DRAINING) {
-    cb(new MongoError('pool is draining, new operations prohibited'));
     return;
   }
 
@@ -20017,6 +16990,10 @@ Pool.prototype.write = function(command, options, cb) {
   // Optional per operation socketTimeout
   operation.socketTimeout = options.socketTimeout;
   operation.monitoring = options.monitoring;
+  // Custom socket Timeout
+  if (options.socketTimeout) {
+    operation.socketTimeout = options.socketTimeout;
+  }
 
   // Get the requestId
   operation.requestId = command.requestId;
@@ -20079,7 +17056,7 @@ Pool.prototype.write = function(command, options, cb) {
 function canCompress(command) {
   const commandDoc = command instanceof Msg ? command.command : command.query;
   const commandName = Object.keys(commandDoc)[0];
-  return !uncompressibleCommands.has(commandName);
+  return uncompressibleCommands.indexOf(commandName) === -1;
 }
 
 // Remove connection method
@@ -20097,73 +17074,55 @@ function removeConnection(self, connection) {
   if (remove(connection, self.inUseConnections)) return;
 }
 
-function createConnection(pool, callback) {
-  if (pool.state === DESTROYED || pool.state === DESTROYING) {
-    if (typeof callback === 'function') {
-      callback(new MongoError('Cannot create connection when pool is destroyed'));
-    }
-
+const handlers = ['close', 'message', 'error', 'timeout', 'parseError', 'connect'];
+function _createConnection(self) {
+  if (self.state === DESTROYED || self.state === DESTROYING) {
     return;
   }
 
-  pool.connectingConnections++;
-  connect(pool.options, pool.s.cancellationToken, (err, connection) => {
-    pool.connectingConnections--;
+  self.connectingConnections++;
+  connect(self.options, (err, connection) => {
+    self.connectingConnections--;
 
     if (err) {
-      if (pool.logger.isDebug()) {
-        pool.logger.debug(`connection attempt failed with error [${JSON.stringify(err)}]`);
+      if (self.logger.isDebug()) {
+        self.logger.debug(`connection attempt failed with error [${JSON.stringify(err)}]`);
       }
 
-      // check if reconnect is enabled, and attempt retry if so
-      if (!pool.reconnectId && pool.options.reconnect) {
-        if (pool.state === CONNECTING && pool.options.legacyCompatMode) {
-          callback(err);
-          return;
-        }
-
-        pool.reconnectError = err;
-        pool.reconnectId = setTimeout(
-          attemptReconnect(pool, callback),
-          pool.options.reconnectInterval
-        );
-
-        return;
-      }
-
-      if (typeof callback === 'function') {
-        callback(err);
+      if (!self.reconnectId && self.options.reconnect) {
+        self.reconnectId = setTimeout(attemptReconnect(self), self.options.reconnectInterval);
       }
 
       return;
     }
 
-    // the pool might have been closed since we started creating the connection
-    if (pool.state === DESTROYED || pool.state === DESTROYING) {
-      if (typeof callback === 'function') {
-        callback(new MongoError('Pool was destroyed after connection creation'));
-      }
-
-      connection.destroy();
-      return;
+    if (self.state === DESTROYED || self.state === DESTROYING) {
+      removeConnection(self, connection);
+      return connection.destroy();
     }
 
-    // otherwise, connect relevant event handlers and add it to our available connections
-    connection.on('error', pool._connectionErrorHandler);
-    connection.on('close', pool._connectionCloseHandler);
-    connection.on('timeout', pool._connectionTimeoutHandler);
-    connection.on('parseError', pool._connectionParseErrorHandler);
-    connection.on('message', pool._messageHandler);
+    connection.on('error', self._connectionErrorHandler);
+    connection.on('close', self._connectionCloseHandler);
+    connection.on('timeout', self._connectionTimeoutHandler);
+    connection.on('parseError', self._connectionParseErrorHandler);
+    connection.on('message', self._messageHandler);
 
-    pool.availableConnections.push(connection);
-
-    // if a callback was provided, return the connection
-    if (typeof callback === 'function') {
-      callback(null, connection);
+    if (self.state === DESTROYED || self.state === DESTROYING) {
+      return connection.destroy();
     }
 
-    // immediately execute any waiting work
-    _execute(pool)();
+    // Remove the connection from the connectingConnections list
+    removeConnection(self, connection);
+
+    // Handle error
+    if (err) {
+      return connection.destroy();
+    }
+
+    // Push to available
+    self.availableConnections.push(connection);
+    // Execute any work waiting
+    _execute(self)();
   });
 }
 
@@ -20205,12 +17164,6 @@ function _execute(self) {
       if (self.availableConnections.length === 0) {
         // Flush any monitoring operations
         flushMonitoringOperations(self.queue);
-
-        // Try to create a new connection to execute stuck operation
-        if (totalConnections < self.options.size && self.queue.length > 0) {
-          createConnection(self);
-        }
-
         break;
       }
 
@@ -20271,11 +17224,14 @@ function _execute(self) {
           // Attempt to grow the pool if it's not yet maxsize
           if (totalConnections < self.options.size && self.queue.length > 0) {
             // Create a new connection
-            createConnection(self);
+            _createConnection(self);
           }
 
           // Re-execute the operation
-          setTimeout(() => _execute(self)(), 10);
+          setTimeout(function() {
+            _execute(self)();
+          }, 10);
+
           break;
         }
       }
@@ -20288,7 +17244,7 @@ function _execute(self) {
           // Lets put the workItem back on the list
           self.queue.unshift(workItem);
           // Create a new connection
-          createConnection(self);
+          _createConnection(self);
           // Break from the loop
           break;
         }
@@ -20556,7 +17512,7 @@ class CoreCursor extends Readable {
    * @param {string} ns The MongoDB fully qualified namespace (ex: db1.collection1)
    * @param {{object}|Long} cmd The selector (can be a command or a cursorId)
    * @param {object} [options=null] Optional settings.
-   * @param {object} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/find/| find command documentation} and {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
+   * @param {object} [options.batchSize=1000] Batchsize for the operation
    * @param {array} [options.documents=[]] Initial documents list for cursor
    * @param {object} [options.transforms=null] Transform methods for the cursor results
    * @param {function} [options.transforms.query] Transform the value returned from the initial query
@@ -20923,7 +17879,7 @@ class CoreCursor extends Readable {
           return;
         }
 
-        this._initializeCursor(callback);
+        cursor._next(callback);
       });
 
       return;
@@ -21429,29 +18385,25 @@ class MongoError extends Error {
     return new MongoError(options);
   }
 
-  /**
-   * Checks the error to see if it has an error label
-   * @param {string} label The error label to check for
-   * @returns {boolean} returns true if the error has the provided error label
-   */
   hasErrorLabel(label) {
     return this.errorLabels && this.errorLabels.indexOf(label) !== -1;
   }
 }
 
 /**
- * An error indicating an issue with the network, including TCP
- * errors and timeouts.
+ * Creates a new MongoNetworkError
  *
  * @param {Error|string|object} message The error message
  * @property {string} message The error message
  * @property {string} stack The error call stack
- * @extends MongoError
  */
 class MongoNetworkError extends MongoError {
   constructor(message) {
     super(message);
     this.name = 'MongoNetworkError';
+
+    // This is added as part of the transactions specification
+    this.errorLabels = ['TransientTransactionError'];
   }
 }
 
@@ -21460,7 +18412,6 @@ class MongoNetworkError extends MongoError {
  *
  * @param {Error|string|object} message The error message
  * @property {string} message The error message
- * @extends MongoError
  */
 class MongoParseError extends MongoError {
   constructor(message) {
@@ -21470,42 +18421,15 @@ class MongoParseError extends MongoError {
 }
 
 /**
- * An error signifying a client-side timeout event
+ * An error signifying a timeout event
  *
  * @param {Error|string|object} message The error message
- * @param {string|object} [reason] The reason the timeout occured
  * @property {string} message The error message
- * @property {string} [reason] An optional reason context for the timeout, generally an error saved during flow of monitoring and selecting servers
- * @extends MongoError
  */
 class MongoTimeoutError extends MongoError {
-  constructor(message, reason) {
-    if (reason && reason.error) {
-      super(reason.error.message || reason.error);
-    } else {
-      super(message);
-    }
-
+  constructor(message) {
+    super(message);
     this.name = 'MongoTimeoutError';
-    if (reason) {
-      this.reason = reason;
-    }
-  }
-}
-
-/**
- * An error signifying a client-side server selection error
- *
- * @param {Error|string|object} message The error message
- * @param {string|object} [reason] The reason the timeout occured
- * @property {string} message The error message
- * @property {string} [reason] An optional reason context for the timeout, generally an error saved during flow of monitoring and selecting servers
- * @extends MongoError
- */
-class MongoServerSelectionError extends MongoTimeoutError {
-  constructor(message, reason) {
-    super(message, reason);
-    this.name = 'MongoServerSelectionError';
   }
 }
 
@@ -21529,7 +18453,6 @@ function makeWriteConcernResultObject(input) {
  * @param {object} result The result document (provided if ok: 1)
  * @property {string} message The error message
  * @property {object} [result] The result document (provided if ok: 1)
- * @extends MongoError
  */
 class MongoWriteConcernError extends MongoError {
   constructor(message, result) {
@@ -21560,7 +18483,6 @@ const RETRYABLE_ERROR_CODES = new Set([
 /**
  * Determines whether an error is something the driver should attempt to retry
  *
- * @ignore
  * @param {MongoError|Error} error
  */
 function isRetryableError(error) {
@@ -21572,73 +18494,26 @@ function isRetryableError(error) {
   );
 }
 
-const SDAM_RECOVERING_CODES = new Set([
+const SDAM_UNRECOVERABLE_ERROR_CODES = new Set([
   91, // ShutdownInProgress
   189, // PrimarySteppedDown
+  10107, // NotMaster
   11600, // InterruptedAtShutdown
   11602, // InterruptedDueToReplStateChange
+  13435, // NotMasterNoSlaveOk
   13436 // NotMasterOrSecondary
 ]);
-
-const SDAM_NOTMASTER_CODES = new Set([
-  10107, // NotMaster
-  13435 // NotMasterNoSlaveOk
-]);
-
-const SDAM_NODE_SHUTTING_DOWN_ERROR_CODES = new Set([
-  11600, // InterruptedAtShutdown
-  91 // ShutdownInProgress
-]);
-
-function isRecoveringError(err) {
-  if (err.code && SDAM_RECOVERING_CODES.has(err.code)) {
-    return true;
-  }
-
-  return err.message.match(/not master or secondary/) || err.message.match(/node is recovering/);
-}
-
-function isNotMasterError(err) {
-  if (err.code && SDAM_NOTMASTER_CODES.has(err.code)) {
-    return true;
-  }
-
-  if (isRecoveringError(err)) {
-    return false;
-  }
-
-  return err.message.match(/not master/);
-}
-
-function isNodeShuttingDownError(err) {
-  return err.code && SDAM_NODE_SHUTTING_DOWN_ERROR_CODES.has(err.code);
-}
-
 /**
- * Determines whether SDAM can recover from a given error. If it cannot
- * then the pool will be cleared, and server state will completely reset
- * locally.
- *
- * @ignore
- * @see https://github.com/mongodb/specifications/blob/master/source/server-discovery-and-monitoring/server-discovery-and-monitoring.rst#not-master-and-node-is-recovering
+ * Determines whether an error is a "node is recovering" error or a "not master" error for SDAM retryability.
+ * See https://github.com/mongodb/specifications/blob/master/source/server-discovery-and-monitoring/server-discovery-and-monitoring.rst#not-master-and-node-is-recovering
  * @param {MongoError|Error} error
  */
 function isSDAMUnrecoverableError(error) {
-  // NOTE: null check is here for a strictly pre-CMAP world, a timeout or
-  //       close event are considered unrecoverable
-  if (error instanceof MongoParseError || error == null) {
-    return true;
-  }
-
-  if (isRecoveringError(error) || isNotMasterError(error)) {
-    return true;
-  }
-
-  return false;
-}
-
-function isNetworkTimeoutError(err) {
-  return err instanceof MongoNetworkError && err.message.match(/timed out/);
+  return (
+    SDAM_UNRECOVERABLE_ERROR_CODES.has(error.code) ||
+    (error.message &&
+      (error.message.match(/not master/) || error.message.match(/node is recovering/)))
+  );
 }
 
 module.exports = {
@@ -21646,13 +18521,10 @@ module.exports = {
   MongoNetworkError,
   MongoParseError,
   MongoTimeoutError,
-  MongoServerSelectionError,
   MongoWriteConcernError,
   mongoErrorContextSymbol,
   isRetryableError,
-  isSDAMUnrecoverableError,
-  isNodeShuttingDownError,
-  isNetworkTimeoutError
+  isSDAMUnrecoverableError
 };
 
 
@@ -21688,7 +18560,6 @@ module.exports = {
   MongoNetworkError: __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").MongoNetworkError,
   MongoParseError: __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").MongoParseError,
   MongoTimeoutError: __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").MongoTimeoutError,
-  MongoServerSelectionError: __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").MongoServerSelectionError,
   MongoWriteConcernError: __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").MongoWriteConcernError,
   mongoErrorContextSymbol: __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").mongoErrorContextSymbol,
   // Core
@@ -21702,7 +18573,7 @@ module.exports = {
   Sessions: __webpack_require__(/*! ./sessions */ "./node_modules/mongodb/lib/core/sessions.js"),
   BSON: BSON,
   EJSON: EJSON,
-  Topology: __webpack_require__(/*! ./sdam/topology */ "./node_modules/mongodb/lib/core/sdam/topology.js").Topology,
+  Topology: __webpack_require__(/*! ./sdam/topology */ "./node_modules/mongodb/lib/core/sdam/topology.js"),
   // Raw operations
   Query: __webpack_require__(/*! ./connection/commands */ "./node_modules/mongodb/lib/core/connection/commands.js").Query,
   // Auth mechanisms
@@ -21721,86 +18592,18 @@ module.exports = {
 
 /***/ }),
 
-/***/ "./node_modules/mongodb/lib/core/sdam/common.js":
-/*!******************************************************!*\
-  !*** ./node_modules/mongodb/lib/core/sdam/common.js ***!
-  \******************************************************/
+/***/ "./node_modules/mongodb/lib/core/sdam/monitoring.js":
+/*!**********************************************************!*\
+  !*** ./node_modules/mongodb/lib/core/sdam/monitoring.js ***!
+  \**********************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
-// shared state names
-const STATE_CLOSING = 'closing';
-const STATE_CLOSED = 'closed';
-const STATE_CONNECTING = 'connecting';
-const STATE_CONNECTED = 'connected';
-
-// An enumeration of topology types we know about
-const TopologyType = {
-  Single: 'Single',
-  ReplicaSetNoPrimary: 'ReplicaSetNoPrimary',
-  ReplicaSetWithPrimary: 'ReplicaSetWithPrimary',
-  Sharded: 'Sharded',
-  Unknown: 'Unknown'
-};
-
-// An enumeration of server types we know about
-const ServerType = {
-  Standalone: 'Standalone',
-  Mongos: 'Mongos',
-  PossiblePrimary: 'PossiblePrimary',
-  RSPrimary: 'RSPrimary',
-  RSSecondary: 'RSSecondary',
-  RSArbiter: 'RSArbiter',
-  RSOther: 'RSOther',
-  RSGhost: 'RSGhost',
-  Unknown: 'Unknown'
-};
-
-const TOPOLOGY_DEFAULTS = {
-  useUnifiedTopology: true,
-  localThresholdMS: 15,
-  serverSelectionTimeoutMS: 30000,
-  heartbeatFrequencyMS: 10000,
-  minHeartbeatFrequencyMS: 500
-};
-
-function drainTimerQueue(queue) {
-  queue.forEach(clearTimeout);
-  queue.clear();
-}
-
-function clearAndRemoveTimerFrom(timer, timers) {
-  clearTimeout(timer);
-  return timers.delete(timer);
-}
-
-module.exports = {
-  STATE_CLOSING,
-  STATE_CLOSED,
-  STATE_CONNECTING,
-  STATE_CONNECTED,
-  TOPOLOGY_DEFAULTS,
-  TopologyType,
-  ServerType,
-  drainTimerQueue,
-  clearAndRemoveTimerFrom
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/core/sdam/events.js":
-/*!******************************************************!*\
-  !*** ./node_modules/mongodb/lib/core/sdam/events.js ***!
-  \******************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
+const ServerDescription = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerDescription;
+const calculateDurationInMs = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").calculateDurationInMs;
 
 /**
  * Published when server description changes, but does NOT include changes to the RTT.
@@ -21896,7 +18699,7 @@ class ServerHeartbeatStartedEvent {
  */
 class ServerHeartbeatSucceededEvent {
   constructor(duration, reply, connectionId) {
-    Object.assign(this, { connectionId, duration, reply });
+    Object.assign(this, { duration, reply, connectionId });
   }
 }
 
@@ -21909,8 +18712,108 @@ class ServerHeartbeatSucceededEvent {
  */
 class ServerHeartbeatFailedEvent {
   constructor(duration, failure, connectionId) {
-    Object.assign(this, { connectionId, duration, failure });
+    Object.assign(this, { duration, failure, connectionId });
   }
+}
+
+/**
+ * Performs a server check as described by the SDAM spec.
+ *
+ * NOTE: This method automatically reschedules itself, so that there is always an active
+ * monitoring process
+ *
+ * @param {Server} server The server to monitor
+ */
+function monitorServer(server, options) {
+  options = options || {};
+  const heartbeatFrequencyMS = options.heartbeatFrequencyMS || 10000;
+
+  if (options.initial === true) {
+    server.s.monitorId = setTimeout(() => monitorServer(server), heartbeatFrequencyMS);
+    return;
+  }
+
+  // executes a single check of a server
+  const checkServer = callback => {
+    let start = process.hrtime();
+
+    // emit a signal indicating we have started the heartbeat
+    server.emit('serverHeartbeatStarted', new ServerHeartbeatStartedEvent(server.name));
+
+    // NOTE: legacy monitoring event
+    process.nextTick(() => server.emit('monitoring', server));
+
+    server.command(
+      'admin.$cmd',
+      { ismaster: true },
+      {
+        monitoring: true,
+        socketTimeout: server.s.options.connectionTimeout || 2000
+      },
+      (err, result) => {
+        let duration = calculateDurationInMs(start);
+
+        if (err) {
+          server.emit(
+            'serverHeartbeatFailed',
+            new ServerHeartbeatFailedEvent(duration, err, server.name)
+          );
+
+          return callback(err, null);
+        }
+
+        const isMaster = result.result;
+        server.emit(
+          'serverHeartbeatSucceded',
+          new ServerHeartbeatSucceededEvent(duration, isMaster, server.name)
+        );
+
+        return callback(null, isMaster);
+      }
+    );
+  };
+
+  const successHandler = isMaster => {
+    server.s.monitoring = false;
+
+    // emit an event indicating that our description has changed
+    server.emit('descriptionReceived', new ServerDescription(server.description.address, isMaster));
+
+    // schedule the next monitoring process
+    server.s.monitorId = setTimeout(() => monitorServer(server), heartbeatFrequencyMS);
+  };
+
+  // run the actual monitoring loop
+  server.s.monitoring = true;
+  checkServer((err, isMaster) => {
+    if (!err) {
+      successHandler(isMaster);
+      return;
+    }
+
+    // According to the SDAM specification's "Network error during server check" section, if
+    // an ismaster call fails we reset the server's pool. If a server was once connected,
+    // change its type to `Unknown` only after retrying once.
+    server.s.pool.reset(() => {
+      // otherwise re-attempt monitoring once
+      checkServer((error, isMaster) => {
+        if (error) {
+          server.s.monitoring = false;
+
+          // we revert to an `Unknown` by emitting a default description with no isMaster
+          server.emit(
+            'descriptionReceived',
+            new ServerDescription(server.description.address, null, { error })
+          );
+
+          // we do not reschedule monitoring in this case
+          return;
+        }
+
+        successHandler(isMaster);
+      });
+    });
+  });
 }
 
 module.exports = {
@@ -21922,270 +18825,8 @@ module.exports = {
   TopologyClosedEvent,
   ServerHeartbeatStartedEvent,
   ServerHeartbeatSucceededEvent,
-  ServerHeartbeatFailedEvent
-};
-
-
-/***/ }),
-
-/***/ "./node_modules/mongodb/lib/core/sdam/monitor.js":
-/*!*******************************************************!*\
-  !*** ./node_modules/mongodb/lib/core/sdam/monitor.js ***!
-  \*******************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-const ServerType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").ServerType;
-const calculateDurationInMs = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").calculateDurationInMs;
-const EventEmitter = __webpack_require__(/*! events */ "events");
-const connect = __webpack_require__(/*! ../connection/connect */ "./node_modules/mongodb/lib/core/connection/connect.js");
-const Connection = __webpack_require__(/*! ../../cmap/connection */ "./node_modules/mongodb/lib/cmap/connection.js").Connection;
-const common = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js");
-const makeStateMachine = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeStateMachine;
-const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-
-const sdamEvents = __webpack_require__(/*! ./events */ "./node_modules/mongodb/lib/core/sdam/events.js");
-const ServerHeartbeatStartedEvent = sdamEvents.ServerHeartbeatStartedEvent;
-const ServerHeartbeatSucceededEvent = sdamEvents.ServerHeartbeatSucceededEvent;
-const ServerHeartbeatFailedEvent = sdamEvents.ServerHeartbeatFailedEvent;
-
-const kServer = Symbol('server');
-const kMonitorId = Symbol('monitorId');
-const kConnection = Symbol('connection');
-const kCancellationToken = Symbol('cancellationToken');
-const kLastCheckTime = Symbol('lastCheckTime');
-
-const STATE_CLOSED = common.STATE_CLOSED;
-const STATE_CLOSING = common.STATE_CLOSING;
-const STATE_IDLE = 'idle';
-const STATE_MONITORING = 'monitoring';
-const stateTransition = makeStateMachine({
-  [STATE_CLOSING]: [STATE_CLOSING, STATE_CLOSED],
-  [STATE_CLOSED]: [STATE_CLOSED, STATE_MONITORING],
-  [STATE_IDLE]: [STATE_IDLE, STATE_MONITORING, STATE_CLOSING],
-  [STATE_MONITORING]: [STATE_MONITORING, STATE_IDLE, STATE_CLOSING]
-});
-
-const INVALID_REQUEST_CHECK_STATES = new Set([STATE_CLOSING, STATE_CLOSED, STATE_MONITORING]);
-
-class Monitor extends EventEmitter {
-  constructor(server, options) {
-    super(options);
-
-    this[kServer] = server;
-    this[kConnection] = undefined;
-    this[kCancellationToken] = new EventEmitter();
-    this[kCancellationToken].setMaxListeners(Infinity);
-    this.s = {
-      state: STATE_CLOSED
-    };
-
-    this.address = server.description.address;
-    this.options = Object.freeze({
-      connectTimeoutMS:
-        typeof options.connectionTimeout === 'number'
-          ? options.connectionTimeout
-          : typeof options.connectTimeoutMS === 'number'
-          ? options.connectTimeoutMS
-          : 10000,
-      heartbeatFrequencyMS:
-        typeof options.heartbeatFrequencyMS === 'number' ? options.heartbeatFrequencyMS : 10000,
-      minHeartbeatFrequencyMS:
-        typeof options.minHeartbeatFrequencyMS === 'number' ? options.minHeartbeatFrequencyMS : 500
-    });
-
-    // TODO: refactor this to pull it directly from the pool, requires new ConnectionPool integration
-    const addressParts = server.description.address.split(':');
-    this.connectOptions = Object.freeze(
-      Object.assign(
-        {
-          id: '<monitor>',
-          host: addressParts[0],
-          port: parseInt(addressParts[1], 10),
-          bson: server.s.bson,
-          connectionType: Connection
-        },
-        server.s.options,
-        this.options,
-
-        // force BSON serialization options
-        {
-          raw: false,
-          promoteLongs: true,
-          promoteValues: true,
-          promoteBuffers: true
-        }
-      )
-    );
-  }
-
-  connect() {
-    if (this.s.state !== STATE_CLOSED) {
-      return;
-    }
-
-    monitorServer(this);
-  }
-
-  requestCheck() {
-    if (INVALID_REQUEST_CHECK_STATES.has(this.s.state)) {
-      return;
-    }
-
-    const heartbeatFrequencyMS = this.options.heartbeatFrequencyMS;
-    const minHeartbeatFrequencyMS = this.options.minHeartbeatFrequencyMS;
-    const remainingTime = heartbeatFrequencyMS - calculateDurationInMs(this[kLastCheckTime]);
-    if (remainingTime > minHeartbeatFrequencyMS && this[kMonitorId]) {
-      clearTimeout(this[kMonitorId]);
-      rescheduleMonitoring(this, minHeartbeatFrequencyMS);
-      return;
-    }
-
-    if (this[kMonitorId]) {
-      clearTimeout(this[kMonitorId]);
-    }
-
-    monitorServer(this);
-  }
-
-  close() {
-    if (this.s.state === STATE_CLOSED || this.s.state === STATE_CLOSING) {
-      return;
-    }
-
-    stateTransition(this, STATE_CLOSING);
-    this[kCancellationToken].emit('cancel');
-    if (this[kMonitorId]) {
-      clearTimeout(this[kMonitorId]);
-    }
-
-    if (this[kConnection]) {
-      this[kConnection].destroy({ force: true });
-    }
-
-    this.emit('close');
-    stateTransition(this, STATE_CLOSED);
-  }
-}
-
-function checkServer(monitor, callback) {
-  if (monitor[kConnection] && monitor[kConnection].closed) {
-    monitor[kConnection] = undefined;
-  }
-
-  const start = process.hrtime();
-  monitor.emit('serverHeartbeatStarted', new ServerHeartbeatStartedEvent(monitor.address));
-
-  function failureHandler(err) {
-    monitor.emit(
-      'serverHeartbeatFailed',
-      new ServerHeartbeatFailedEvent(calculateDurationInMs(start), err, monitor.address)
-    );
-
-    callback(err);
-  }
-
-  function successHandler(isMaster) {
-    monitor.emit(
-      'serverHeartbeatSucceeded',
-      new ServerHeartbeatSucceededEvent(calculateDurationInMs(start), isMaster, monitor.address)
-    );
-
-    return callback(undefined, isMaster);
-  }
-
-  if (monitor[kConnection] != null) {
-    const connectTimeoutMS = monitor.options.connectTimeoutMS;
-    monitor[kConnection].command(
-      'admin.$cmd',
-      { ismaster: true },
-      { socketTimeout: connectTimeoutMS },
-      (err, result) => {
-        if (err) {
-          failureHandler(err);
-          return;
-        }
-
-        successHandler(result.result);
-      }
-    );
-
-    return;
-  }
-
-  // connecting does an implicit `ismaster`
-  connect(monitor.connectOptions, monitor[kCancellationToken], (err, conn) => {
-    if (err) {
-      monitor[kConnection] = undefined;
-      failureHandler(err);
-      return;
-    }
-
-    if (monitor.s.state === STATE_CLOSING || monitor.s.state === STATE_CLOSED) {
-      conn.destroy({ force: true });
-      failureHandler(new MongoError('monitor was destroyed'));
-      return;
-    }
-
-    monitor[kConnection] = conn;
-    successHandler(conn.ismaster);
-  });
-}
-
-function monitorServer(monitor) {
-  stateTransition(monitor, STATE_MONITORING);
-
-  // TODO: the next line is a legacy event, remove in v4
-  process.nextTick(() => monitor.emit('monitoring', monitor[kServer]));
-
-  checkServer(monitor, e0 => {
-    if (e0 == null) {
-      rescheduleMonitoring(monitor);
-      return;
-    }
-
-    // otherwise an error occured on initial discovery, also bail
-    if (monitor[kServer].description.type === ServerType.Unknown) {
-      monitor.emit('resetServer', e0);
-      rescheduleMonitoring(monitor);
-      return;
-    }
-
-    // According to the SDAM specification's "Network error during server check" section, if
-    // an ismaster call fails we reset the server's pool. If a server was once connected,
-    // change its type to `Unknown` only after retrying once.
-    monitor.emit('resetConnectionPool');
-
-    checkServer(monitor, e1 => {
-      if (e1) {
-        monitor.emit('resetServer', e1);
-      }
-
-      rescheduleMonitoring(monitor);
-    });
-  });
-}
-
-function rescheduleMonitoring(monitor, ms) {
-  const heartbeatFrequencyMS = monitor.options.heartbeatFrequencyMS;
-  if (monitor.s.state === STATE_CLOSING || monitor.s.state === STATE_CLOSED) {
-    return;
-  }
-
-  stateTransition(monitor, STATE_IDLE);
-
-  monitor[kLastCheckTime] = process.hrtime();
-  monitor[kMonitorId] = setTimeout(() => {
-    monitor[kMonitorId] = undefined;
-    monitor.requestCheck();
-  }, ms || heartbeatFrequencyMS);
-}
-
-module.exports = {
-  Monitor
+  ServerHeartbeatFailedEvent,
+  monitorServer
 };
 
 
@@ -22201,24 +18842,21 @@ module.exports = {
 "use strict";
 
 const EventEmitter = __webpack_require__(/*! events */ "events");
-const ConnectionPool = __webpack_require__(/*! ../../cmap/connection_pool */ "./node_modules/mongodb/lib/cmap/connection_pool.js").ConnectionPool;
-const CMAP_EVENT_NAMES = __webpack_require__(/*! ../../cmap/events */ "./node_modules/mongodb/lib/cmap/events.js").CMAP_EVENT_NAMES;
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
+const Pool = __webpack_require__(/*! ../connection/pool */ "./node_modules/mongodb/lib/core/connection/pool.js");
 const relayEvents = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").relayEvents;
+const wireProtocol = __webpack_require__(/*! ../wireprotocol */ "./node_modules/mongodb/lib/core/wireprotocol/index.js");
 const BSON = __webpack_require__(/*! ../connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").retrieveBSON();
+const createClientInfo = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createClientInfo;
 const Logger = __webpack_require__(/*! ../connection/logger */ "./node_modules/mongodb/lib/core/connection/logger.js");
 const ServerDescription = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerDescription;
 const ReadPreference = __webpack_require__(/*! ../topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
-const Monitor = __webpack_require__(/*! ./monitor */ "./node_modules/mongodb/lib/core/sdam/monitor.js").Monitor;
+const monitorServer = __webpack_require__(/*! ./monitoring */ "./node_modules/mongodb/lib/core/sdam/monitoring.js").monitorServer;
+const MongoParseError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoParseError;
 const MongoNetworkError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoNetworkError;
 const collationNotSupported = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").collationNotSupported;
 const debugOptions = __webpack_require__(/*! ../connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").debugOptions;
 const isSDAMUnrecoverableError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").isSDAMUnrecoverableError;
-const isNetworkTimeoutError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").isNetworkTimeoutError;
-const isNodeShuttingDownError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").isNodeShuttingDownError;
-const maxWireVersion = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").maxWireVersion;
-const makeStateMachine = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeStateMachine;
-const common = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js");
 
 // Used for filtering out fields for logging
 const DEBUG_FIELDS = [
@@ -22248,18 +18886,9 @@ const DEBUG_FIELDS = [
   'servername'
 ];
 
-const STATE_CLOSING = common.STATE_CLOSING;
-const STATE_CLOSED = common.STATE_CLOSED;
-const STATE_CONNECTING = common.STATE_CONNECTING;
-const STATE_CONNECTED = common.STATE_CONNECTED;
-const stateTransition = makeStateMachine({
-  [STATE_CLOSED]: [STATE_CLOSED, STATE_CONNECTING],
-  [STATE_CONNECTING]: [STATE_CONNECTING, STATE_CLOSING, STATE_CONNECTED, STATE_CLOSED],
-  [STATE_CONNECTED]: [STATE_CONNECTED, STATE_CLOSING, STATE_CLOSED],
-  [STATE_CLOSING]: [STATE_CLOSING, STATE_CLOSED]
-});
-
-const kMonitor = Symbol('monitor');
+const STATE_DISCONNECTED = 0;
+const STATE_CONNECTING = 1;
+const STATE_CONNECTED = 2;
 
 /**
  *
@@ -22285,78 +18914,20 @@ class Server extends EventEmitter {
       // the server logger
       logger: Logger('Server', options),
       // the bson parser
-      bson:
-        options.bson ||
-        new BSON([
-          BSON.Binary,
-          BSON.Code,
-          BSON.DBRef,
-          BSON.Decimal128,
-          BSON.Double,
-          BSON.Int32,
-          BSON.Long,
-          BSON.Map,
-          BSON.MaxKey,
-          BSON.MinKey,
-          BSON.ObjectId,
-          BSON.BSONRegExp,
-          BSON.Symbol,
-          BSON.Timestamp
-        ]),
+      bson: options.bson || new BSON(),
+      // client metadata for the initial handshake
+      clientInfo: createClientInfo(options),
+      // state variable to determine if there is an active server check in progress
+      monitoring: false,
+      // the implementation of the monitoring method
+      monitorFunction: options.monitorFunction || monitorServer,
+      // the connection pool
+      pool: null,
       // the server state
-      state: STATE_CLOSED,
+      state: STATE_DISCONNECTED,
       credentials: options.credentials,
       topology
     };
-
-    // create the connection pool
-    // NOTE: this used to happen in `connect`, we supported overriding pool options there
-    const addressParts = this.description.address.split(':');
-    const poolOptions = Object.assign(
-      { host: addressParts[0], port: parseInt(addressParts[1], 10), bson: this.s.bson },
-      options
-    );
-
-    this.s.pool = new ConnectionPool(poolOptions);
-    relayEvents(
-      this.s.pool,
-      this,
-      ['commandStarted', 'commandSucceeded', 'commandFailed'].concat(CMAP_EVENT_NAMES)
-    );
-
-    this.s.pool.on('clusterTimeReceived', clusterTime => {
-      this.clusterTime = clusterTime;
-    });
-
-    // create the monitor
-    this[kMonitor] = new Monitor(this, this.s.options);
-    relayEvents(this[kMonitor], this, [
-      'serverHeartbeatStarted',
-      'serverHeartbeatSucceeded',
-      'serverHeartbeatFailed',
-
-      // legacy events
-      'monitoring'
-    ]);
-
-    this[kMonitor].on('resetConnectionPool', () => {
-      this.s.pool.clear();
-    });
-
-    this[kMonitor].on('resetServer', error => markServerUnknown(this, error));
-    this[kMonitor].on('serverHeartbeatSucceeded', event => {
-      this.emit(
-        'descriptionReceived',
-        new ServerDescription(this.description.address, event.reply, {
-          roundTripTime: calculateRoundTripTime(this.description.roundTripTime, event.duration)
-        })
-      );
-
-      if (this.s.state === STATE_CONNECTING) {
-        stateTransition(this, STATE_CONNECTED);
-        this.emit('connect', this);
-      }
-    });
   }
 
   get description() {
@@ -22377,51 +18948,94 @@ class Server extends EventEmitter {
   /**
    * Initiate server connect
    */
-  connect() {
-    if (this.s.state !== STATE_CLOSED) {
+  connect(options) {
+    options = options || {};
+
+    // do not allow connect to be called on anything that's not disconnected
+    if (this.s.pool && !this.s.pool.isDisconnected() && !this.s.pool.isDestroyed()) {
+      throw new MongoError(`Server instance in invalid state ${this.s.pool.state}`);
+    }
+
+    // create a pool
+    const addressParts = this.description.address.split(':');
+    const poolOptions = Object.assign(
+      { host: addressParts[0], port: parseInt(addressParts[1], 10) },
+      this.s.options,
+      options,
+      { bson: this.s.bson }
+    );
+
+    // NOTE: this should only be the case if we are connecting to a single server
+    poolOptions.reconnect = true;
+
+    this.s.pool = new Pool(this, poolOptions);
+
+    // setup listeners
+    this.s.pool.on('connect', connectEventHandler(this));
+    this.s.pool.on('close', errorEventHandler(this));
+    this.s.pool.on('error', errorEventHandler(this));
+    this.s.pool.on('parseError', parseErrorEventHandler(this));
+
+    // it is unclear whether consumers should even know about these events
+    // this.s.pool.on('timeout', timeoutEventHandler(this));
+    // this.s.pool.on('reconnect', reconnectEventHandler(this));
+    // this.s.pool.on('reconnectFailed', errorEventHandler(this));
+
+    // relay all command monitoring events
+    relayEvents(this.s.pool, this, ['commandStarted', 'commandSucceeded', 'commandFailed']);
+
+    this.s.state = STATE_CONNECTING;
+
+    // If auth settings have been provided, use them
+    if (options.auth) {
+      this.s.pool.connect.apply(this.s.pool, options.auth);
       return;
     }
 
-    stateTransition(this, STATE_CONNECTING);
-    this[kMonitor].connect();
+    this.s.pool.connect();
   }
 
   /**
    * Destroy the server connection
    *
-   * @param {object} [options] Optional settings
    * @param {Boolean} [options.force=false] Force destroy the pool
    */
   destroy(options, callback) {
     if (typeof options === 'function') (callback = options), (options = {});
     options = Object.assign({}, { force: false }, options);
 
-    if (this.s.state === STATE_CLOSED) {
+    const done = err => {
+      this.emit('closed');
+      this.s.state = STATE_DISCONNECTED;
       if (typeof callback === 'function') {
-        callback();
+        callback(err, null);
       }
+    };
 
-      return;
+    if (!this.s.pool) {
+      return done();
     }
 
-    stateTransition(this, STATE_CLOSING);
-
-    this[kMonitor].close();
-    this.s.pool.close(options, err => {
-      stateTransition(this, STATE_CLOSED);
-      this.emit('closed');
-      if (typeof callback === 'function') {
-        callback(err);
-      }
+    ['close', 'error', 'timeout', 'parseError', 'connect'].forEach(event => {
+      this.s.pool.removeAllListeners(event);
     });
+
+    if (this.s.monitorId) {
+      clearTimeout(this.s.monitorId);
+    }
+
+    this.s.pool.destroy(options.force, done);
   }
 
   /**
    * Immediately schedule monitoring of this server. If there already an attempt being made
    * this will be a no-op.
    */
-  requestCheck() {
-    this[kMonitor].requestCheck();
+  monitor(options) {
+    options = options || {};
+    if (this.s.state !== STATE_CONNECTED || this.s.monitoring) return;
+    if (this.s.monitorId) clearTimeout(this.s.monitorId);
+    this.s.monitorFunction(this, options);
   }
 
   /**
@@ -22429,13 +19043,12 @@ class Server extends EventEmitter {
    *
    * @param {string} ns The MongoDB fully qualified namespace (ex: db1.collection1)
    * @param {object} cmd The command hash
-   * @param {object} [options] Optional settings
    * @param {ReadPreference} [options.readPreference] Specify read preference if command supports it
    * @param {Boolean} [options.serializeFunctions=false] Specify if functions on an object should be serialized.
    * @param {Boolean} [options.checkKeys=false] Specify if the bson parser should validate keys.
    * @param {Boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
    * @param {Boolean} [options.fullResult=false] Return the full envelope instead of just the result document.
-   * @param {ClientSession} [options.session] Session to use for the operation
+   * @param {ClientSession} [options.session=null] Session to use for the operation
    * @param {opResultCallback} callback A callback function
    */
   command(ns, cmd, options, callback) {
@@ -22443,14 +19056,9 @@ class Server extends EventEmitter {
       (callback = options), (options = {}), (options = options || {});
     }
 
-    if (this.s.state === STATE_CLOSING || this.s.state === STATE_CLOSED) {
-      callback(new MongoError('server is closed'));
-      return;
-    }
-
     const error = basicReadValidations(this, options);
     if (error) {
-      return callback(error);
+      return callback(error, null);
     }
 
     // Clone the options
@@ -22473,14 +19081,19 @@ class Server extends EventEmitter {
       return;
     }
 
-    this.s.pool.withConnection((err, conn, cb) => {
+    wireProtocol.command(this, ns, cmd, options, (err, result) => {
       if (err) {
-        markServerUnknown(this, err);
-        return cb(err);
+        if (options.session && err instanceof MongoNetworkError) {
+          options.session.serverSession.isDirty = true;
+        }
+
+        if (isSDAMUnrecoverableError(err)) {
+          this.emit('error', err);
+        }
       }
 
-      conn.command(ns, cmd, options, makeOperationHandler(this, options, cb));
-    }, callback);
+      callback(err, result);
+    });
   }
 
   /**
@@ -22492,19 +19105,19 @@ class Server extends EventEmitter {
    * @param {function} callback
    */
   query(ns, cmd, cursorState, options, callback) {
-    if (this.s.state === STATE_CLOSING || this.s.state === STATE_CLOSED) {
-      callback(new MongoError('server is closed'));
-      return;
-    }
-
-    this.s.pool.withConnection((err, conn, cb) => {
+    wireProtocol.query(this, ns, cmd, cursorState, options, (err, result) => {
       if (err) {
-        markServerUnknown(this, err);
-        return cb(err);
+        if (options.session && err instanceof MongoNetworkError) {
+          options.session.serverSession.isDirty = true;
+        }
+
+        if (isSDAMUnrecoverableError(err)) {
+          this.emit('error', err);
+        }
       }
 
-      conn.query(ns, cmd, cursorState, options, makeOperationHandler(this, options, cb));
-    }, callback);
+      callback(err, result);
+    });
   }
 
   /**
@@ -22516,19 +19129,19 @@ class Server extends EventEmitter {
    * @param {function} callback
    */
   getMore(ns, cursorState, batchSize, options, callback) {
-    if (this.s.state === STATE_CLOSING || this.s.state === STATE_CLOSED) {
-      callback(new MongoError('server is closed'));
-      return;
-    }
-
-    this.s.pool.withConnection((err, conn, cb) => {
+    wireProtocol.getMore(this, ns, cursorState, batchSize, options, (err, result) => {
       if (err) {
-        markServerUnknown(this, err);
-        return cb(err);
+        if (options.session && err instanceof MongoNetworkError) {
+          options.session.serverSession.isDirty = true;
+        }
+
+        if (isSDAMUnrecoverableError(err)) {
+          this.emit('error', err);
+        }
       }
 
-      conn.getMore(ns, cursorState, batchSize, options, makeOperationHandler(this, options, cb));
-    }, callback);
+      callback(err, result);
+    });
   }
 
   /**
@@ -22539,22 +19152,15 @@ class Server extends EventEmitter {
    * @param {function} callback
    */
   killCursors(ns, cursorState, callback) {
-    if (this.s.state === STATE_CLOSING || this.s.state === STATE_CLOSED) {
+    wireProtocol.killCursors(this, ns, cursorState, (err, result) => {
+      if (err && isSDAMUnrecoverableError(err)) {
+        this.emit('error', err);
+      }
+
       if (typeof callback === 'function') {
-        callback(new MongoError('server is closed'));
+        callback(err, result);
       }
-
-      return;
-    }
-
-    this.s.pool.withConnection((err, conn, cb) => {
-      if (err) {
-        markServerUnknown(this, err);
-        return cb(err);
-      }
-
-      conn.killCursors(ns, cursorState, makeOperationHandler(this, null, cb));
-    }, callback);
+    });
   }
 
   /**
@@ -22566,7 +19172,7 @@ class Server extends EventEmitter {
    * @param {object} [options.writeConcern={}] Write concern for the operation
    * @param {Boolean} [options.serializeFunctions=false] Specify if functions on an object should be serialized.
    * @param {Boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
-   * @param {ClientSession} [options.session] Session to use for the operation
+   * @param {ClientSession} [options.session=null] Session to use for the operation
    * @param {opResultCallback} callback A callback function
    */
   insert(ns, ops, options, callback) {
@@ -22582,7 +19188,7 @@ class Server extends EventEmitter {
    * @param {object} [options.writeConcern={}] Write concern for the operation
    * @param {Boolean} [options.serializeFunctions=false] Specify if functions on an object should be serialized.
    * @param {Boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
-   * @param {ClientSession} [options.session] Session to use for the operation
+   * @param {ClientSession} [options.session=null] Session to use for the operation
    * @param {opResultCallback} callback A callback function
    */
   update(ns, ops, options, callback) {
@@ -22598,7 +19204,7 @@ class Server extends EventEmitter {
    * @param {object} [options.writeConcern={}] Write concern for the operation
    * @param {Boolean} [options.serializeFunctions=false] Specify if functions on an object should be serialized.
    * @param {Boolean} [options.ignoreUndefined=false] Specify if the BSON serializer should ignore undefined fields.
-   * @param {ClientSession} [options.session] Session to use for the operation
+   * @param {ClientSession} [options.session=null] Session to use for the operation
    * @param {opResultCallback} callback A callback function
    */
   remove(ns, ops, options, callback) {
@@ -22615,12 +19221,24 @@ Object.defineProperty(Server.prototype, 'clusterTime', {
   }
 });
 
-function calculateRoundTripTime(oldRtt, duration) {
-  const alpha = 0.2;
-  return alpha * duration + (1 - alpha) * oldRtt;
+function basicWriteValidations(server) {
+  if (!server.s.pool) {
+    return new MongoError('server instance is not connected');
+  }
+
+  if (server.s.pool.isDestroyed()) {
+    return new MongoError('server instance pool was destroyed');
+  }
+
+  return null;
 }
 
 function basicReadValidations(server, options) {
+  const error = basicWriteValidations(server, options);
+  if (error) {
+    return error;
+  }
+
   if (options.readPreference && !(options.readPreference instanceof ReadPreference)) {
     return new MongoError('readPreference must be an instance of ReadPreference');
   }
@@ -22636,62 +19254,83 @@ function executeWriteOperation(args, options, callback) {
   const ns = args.ns;
   const ops = Array.isArray(args.ops) ? args.ops : [args.ops];
 
-  if (server.s.state === STATE_CLOSING || server.s.state === STATE_CLOSED) {
-    callback(new MongoError('server is closed'));
+  const error = basicWriteValidations(server, options);
+  if (error) {
+    callback(error, null);
     return;
   }
 
   if (collationNotSupported(server, options)) {
-    callback(new MongoError(`server ${server.name} does not support collation`));
+    callback(new MongoError(`server ${this.name} does not support collation`));
     return;
   }
 
-  server.s.pool.withConnection((err, conn, cb) => {
+  return wireProtocol[op](server, ns, ops, options, (err, result) => {
     if (err) {
-      markServerUnknown(server, err);
-      return cb(err);
-    }
+      if (options.session && err instanceof MongoNetworkError) {
+        options.session.serverSession.isDirty = true;
+      }
 
-    conn[op](ns, ops, options, makeOperationHandler(server, options, cb));
-  }, callback);
-}
-
-function markServerUnknown(server, error) {
-  server.emit(
-    'descriptionReceived',
-    new ServerDescription(server.description.address, null, { error })
-  );
-}
-
-function makeOperationHandler(server, options, callback) {
-  return function handleOperationResult(err, result) {
-    if (err) {
-      if (err instanceof MongoNetworkError) {
-        if (options && options.session) {
-          options.session.serverSession.isDirty = true;
-        }
-
-        if (!isNetworkTimeoutError(err)) {
-          markServerUnknown(server, err);
-          server.s.pool.clear();
-        }
-      } else if (isSDAMUnrecoverableError(err)) {
-        if (maxWireVersion(server) <= 7 || isNodeShuttingDownError(err)) {
-          server.s.pool.clear();
-        }
-
-        markServerUnknown(server, err);
-        process.nextTick(() => server.requestCheck());
+      if (isSDAMUnrecoverableError(err)) {
+        server.emit('error', err);
       }
     }
 
     callback(err, result);
+  });
+}
+
+function connectEventHandler(server) {
+  return function(pool, conn) {
+    const ismaster = conn.ismaster;
+    server.s.lastIsMasterMS = conn.lastIsMasterMS;
+    if (conn.agreedCompressor) {
+      server.s.pool.options.agreedCompressor = conn.agreedCompressor;
+    }
+
+    if (conn.zlibCompressionLevel) {
+      server.s.pool.options.zlibCompressionLevel = conn.zlibCompressionLevel;
+    }
+
+    if (conn.ismaster.$clusterTime) {
+      const $clusterTime = conn.ismaster.$clusterTime;
+      server.s.sclusterTime = $clusterTime;
+    }
+
+    // log the connection event if requested
+    if (server.s.logger.isInfo()) {
+      server.s.logger.info(
+        `server ${server.name} connected with ismaster [${JSON.stringify(ismaster)}]`
+      );
+    }
+
+    // emit an event indicating that our description has changed
+    server.emit('descriptionReceived', new ServerDescription(server.description.address, ismaster));
+
+    // we are connected and handshaked (guaranteed by the pool)
+    server.s.state = STATE_CONNECTED;
+    server.emit('connect', server);
   };
 }
 
-module.exports = {
-  Server
-};
+function errorEventHandler(server) {
+  return function(err) {
+    if (err) {
+      server.emit('error', new MongoNetworkError(err));
+    }
+
+    server.emit('close');
+  };
+}
+
+function parseErrorEventHandler(server) {
+  return function(err) {
+    server.s.state = STATE_DISCONNECTED;
+    server.emit('error', new MongoParseError(err));
+  };
+}
+
+module.exports = Server;
 
 
 /***/ }),
@@ -22706,10 +19345,18 @@ module.exports = {
 "use strict";
 
 
-const arrayStrictEqual = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").arrayStrictEqual;
-const tagsStrictEqual = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").tagsStrictEqual;
-const errorStrictEqual = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").errorStrictEqual;
-const ServerType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").ServerType;
+// An enumeration of server types we know about
+const ServerType = {
+  Standalone: 'Standalone',
+  Mongos: 'Mongos',
+  PossiblePrimary: 'PossiblePrimary',
+  RSPrimary: 'RSPrimary',
+  RSSecondary: 'RSSecondary',
+  RSArbiter: 'RSArbiter',
+  RSOther: 'RSOther',
+  RSGhost: 'RSGhost',
+  Unknown: 'Unknown'
+};
 
 const WRITABLE_SERVER_TYPES = new Set([
   ServerType.RSPrimary,
@@ -22774,8 +19421,8 @@ class ServerDescription {
     );
 
     this.address = address;
-    this.error = options.error;
-    this.roundTripTime = options.roundTripTime || -1;
+    this.error = options.error || null;
+    this.roundTripTime = options.roundTripTime || 0;
     this.lastUpdateTime = Date.now();
     this.lastWriteDate = ismaster.lastWrite ? ismaster.lastWrite.lastWriteDate : null;
     this.opTime = ismaster.lastWrite ? ismaster.lastWrite.opTime : null;
@@ -22817,32 +19464,6 @@ class ServerDescription {
   get isWritable() {
     return WRITABLE_SERVER_TYPES.has(this.type);
   }
-
-  /**
-   * Determines if another `ServerDescription` is equal to this one per the rules defined
-   * in the {@link https://github.com/mongodb/specifications/blob/master/source/server-discovery-and-monitoring/server-discovery-and-monitoring.rst#serverdescription|SDAM spec}
-   *
-   * @param {ServerDescription} other
-   * @return {Boolean}
-   */
-  equals(other) {
-    return (
-      other != null &&
-      errorStrictEqual(this.error, other.error) &&
-      this.type === other.type &&
-      this.minWireVersion === other.minWireVersion &&
-      this.me === other.me &&
-      arrayStrictEqual(this.hosts, other.hosts) &&
-      tagsStrictEqual(this.tags, other.tags) &&
-      this.setName === other.setName &&
-      this.setVersion === other.setVersion &&
-      (this.electionId
-        ? other.electionId && this.electionId.equals(other.electionId)
-        : this.electionId === other.electionId) &&
-      this.primary === other.primary &&
-      this.logicalSessionTimeoutMinutes === other.logicalSessionTimeoutMinutes
-    );
-  }
 }
 
 /**
@@ -22883,23 +19504,23 @@ function parseServerType(ismaster) {
 
 module.exports = {
   ServerDescription,
-  parseServerType
+  ServerType
 };
 
 
 /***/ }),
 
-/***/ "./node_modules/mongodb/lib/core/sdam/server_selection.js":
+/***/ "./node_modules/mongodb/lib/core/sdam/server_selectors.js":
 /*!****************************************************************!*\
-  !*** ./node_modules/mongodb/lib/core/sdam/server_selection.js ***!
+  !*** ./node_modules/mongodb/lib/core/sdam/server_selectors.js ***!
   \****************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
-const ServerType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").ServerType;
-const TopologyType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").TopologyType;
+const ServerType = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerType;
+const TopologyType = __webpack_require__(/*! ./topology_description */ "./node_modules/mongodb/lib/core/sdam/topology_description.js").TopologyType;
 const ReadPreference = __webpack_require__(/*! ../topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
 
@@ -22912,10 +19533,7 @@ const SMALLEST_MAX_STALENESS_SECONDS = 90;
  */
 function writableServerSelector() {
   return function(topologyDescription, servers) {
-    return latencyWindowReducer(
-      topologyDescription,
-      servers.filter(s => s.isWritable)
-    );
+    return latencyWindowReducer(topologyDescription, servers.filter(s => s.isWritable));
   };
 }
 
@@ -23077,11 +19695,12 @@ function readPreferenceServerSelector(readPreference) {
     const commonWireVersion = topologyDescription.commonWireVersion;
     if (
       commonWireVersion &&
-      readPreference.minWireVersion &&
-      readPreference.minWireVersion > commonWireVersion
+      (readPreference.minWireVersion && readPreference.minWireVersion > commonWireVersion)
     ) {
       throw new MongoError(
-        `Minimum wire version '${readPreference.minWireVersion}' required, but found '${commonWireVersion}'`
+        `Minimum wire version '${
+          readPreference.minWireVersion
+        }' required, but found '${commonWireVersion}'`
       );
     }
 
@@ -23216,7 +19835,7 @@ class SrvPoller extends EventEmitter {
   }
 
   get intervalMS() {
-    return this.haMode ? this.heartbeatFrequencyMS : this.rescanSrvIntervalMS;
+    return this.haMode ? this.heartbeatFrequencyMS : this.rescanSrvIntervalMs;
   }
 
   start() {
@@ -23303,45 +19922,44 @@ module.exports.SrvPoller = SrvPoller;
 
 "use strict";
 
-const Denque = __webpack_require__(/*! denque */ "./node_modules/denque/index.js");
 const EventEmitter = __webpack_require__(/*! events */ "events");
 const ServerDescription = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerDescription;
-const ServerType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").ServerType;
+const ServerType = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerType;
 const TopologyDescription = __webpack_require__(/*! ./topology_description */ "./node_modules/mongodb/lib/core/sdam/topology_description.js").TopologyDescription;
-const TopologyType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").TopologyType;
-const events = __webpack_require__(/*! ./events */ "./node_modules/mongodb/lib/core/sdam/events.js");
-const Server = __webpack_require__(/*! ./server */ "./node_modules/mongodb/lib/core/sdam/server.js").Server;
+const TopologyType = __webpack_require__(/*! ./topology_description */ "./node_modules/mongodb/lib/core/sdam/topology_description.js").TopologyType;
+const monitoring = __webpack_require__(/*! ./monitoring */ "./node_modules/mongodb/lib/core/sdam/monitoring.js");
+const calculateDurationInMs = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").calculateDurationInMs;
+const MongoTimeoutError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoTimeoutError;
+const Server = __webpack_require__(/*! ./server */ "./node_modules/mongodb/lib/core/sdam/server.js");
 const relayEvents = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").relayEvents;
 const ReadPreference = __webpack_require__(/*! ../topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
+const readPreferenceServerSelector = __webpack_require__(/*! ./server_selectors */ "./node_modules/mongodb/lib/core/sdam/server_selectors.js").readPreferenceServerSelector;
+const writableServerSelector = __webpack_require__(/*! ./server_selectors */ "./node_modules/mongodb/lib/core/sdam/server_selectors.js").writableServerSelector;
 const isRetryableWritesSupported = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").isRetryableWritesSupported;
 const CoreCursor = __webpack_require__(/*! ../cursor */ "./node_modules/mongodb/lib/core/cursor.js").CoreCursor;
 const deprecate = __webpack_require__(/*! util */ "util").deprecate;
 const BSON = __webpack_require__(/*! ../connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").retrieveBSON();
 const createCompressionInfo = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createCompressionInfo;
 const isRetryableError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").isRetryableError;
+const MongoParseError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoParseError;
+const isSDAMUnrecoverableError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").isSDAMUnrecoverableError;
 const ClientSession = __webpack_require__(/*! ../sessions */ "./node_modules/mongodb/lib/core/sessions.js").ClientSession;
+const createClientInfo = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createClientInfo;
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const MongoServerSelectionError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoServerSelectionError;
 const resolveClusterTime = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").resolveClusterTime;
 const SrvPoller = __webpack_require__(/*! ./srv_polling */ "./node_modules/mongodb/lib/core/sdam/srv_polling.js").SrvPoller;
 const getMMAPError = __webpack_require__(/*! ../topologies/shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").getMMAPError;
-const makeStateMachine = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeStateMachine;
-const eachAsync = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").eachAsync;
-const emitDeprecationWarning = __webpack_require__(/*! ../../utils */ "./node_modules/mongodb/lib/utils.js").emitDeprecationWarning;
-const ServerSessionPool = __webpack_require__(/*! ../sessions */ "./node_modules/mongodb/lib/core/sessions.js").ServerSessionPool;
-const makeClientMetadata = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeClientMetadata;
-const CMAP_EVENT_NAMES = __webpack_require__(/*! ../../cmap/events */ "./node_modules/mongodb/lib/cmap/events.js").CMAP_EVENT_NAMES;
-
-const common = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js");
-const drainTimerQueue = common.drainTimerQueue;
-const clearAndRemoveTimerFrom = common.clearAndRemoveTimerFrom;
-
-const serverSelection = __webpack_require__(/*! ./server_selection */ "./node_modules/mongodb/lib/core/sdam/server_selection.js");
-const readPreferenceServerSelector = serverSelection.readPreferenceServerSelector;
-const writableServerSelector = serverSelection.writableServerSelector;
 
 // Global state
 let globalTopologyCounter = 0;
+
+// Constants
+const TOPOLOGY_DEFAULTS = {
+  localThresholdMS: 15,
+  serverSelectionTimeoutMS: 10000,
+  heartbeatFrequencyMS: 30000,
+  minHeartbeatFrequencyMS: 500
+};
 
 // events that we relay to the `Topology`
 const SERVER_RELAY_EVENTS = [
@@ -23354,31 +19972,16 @@ const SERVER_RELAY_EVENTS = [
 
   // NOTE: Legacy events
   'monitoring'
-].concat(CMAP_EVENT_NAMES);
+];
 
 // all events we listen to from `Server` instances
-const LOCAL_SERVER_EVENTS = ['connect', 'descriptionReceived', 'close', 'ended'];
-
-const STATE_CLOSING = common.STATE_CLOSING;
-const STATE_CLOSED = common.STATE_CLOSED;
-const STATE_CONNECTING = common.STATE_CONNECTING;
-const STATE_CONNECTED = common.STATE_CONNECTED;
-const stateTransition = makeStateMachine({
-  [STATE_CLOSED]: [STATE_CLOSED, STATE_CONNECTING],
-  [STATE_CONNECTING]: [STATE_CONNECTING, STATE_CLOSING, STATE_CONNECTED, STATE_CLOSED],
-  [STATE_CONNECTED]: [STATE_CONNECTED, STATE_CLOSING, STATE_CLOSED],
-  [STATE_CLOSING]: [STATE_CLOSING, STATE_CLOSED]
-});
-
-const DEPRECATED_OPTIONS = new Set([
-  'autoReconnect',
-  'reconnectTries',
-  'reconnectInterval',
-  'bufferMaxEntries'
+const LOCAL_SERVER_EVENTS = SERVER_RELAY_EVENTS.concat([
+  'error',
+  'connect',
+  'descriptionReceived',
+  'close',
+  'ended'
 ]);
-
-const kCancelled = Symbol('cancelled');
-const kWaitQueue = Symbol('waitQueue');
 
 /**
  * A container of server instances representing a connection to a MongoDB topology.
@@ -23420,22 +20023,7 @@ class Topology extends EventEmitter {
       seedlist = parseStringSeedlist(seedlist);
     }
 
-    options = Object.assign({}, common.TOPOLOGY_DEFAULTS, options);
-    options = Object.freeze(
-      Object.assign(options, {
-        metadata: makeClientMetadata(options),
-        compression: { compressors: createCompressionInfo(options) }
-      })
-    );
-
-    DEPRECATED_OPTIONS.forEach(optionName => {
-      if (options[optionName]) {
-        emitDeprecationWarning(
-          `The option \`${optionName}\` is incompatible with the unified topology, please read more by visiting http://bit.ly/2D8WfT6`,
-          'DeprecationWarning'
-        );
-      }
-    });
+    options = Object.assign({}, TOPOLOGY_DEFAULTS, options);
 
     const topologyType = topologyTypeFromSeedlist(seedlist, options);
     const topologyId = globalTopologyCounter++;
@@ -23446,7 +20034,6 @@ class Topology extends EventEmitter {
       return result;
     }, new Map());
 
-    this[kWaitQueue] = new Denque();
     this.s = {
       // the id of this topology
       id: topologyId,
@@ -23454,8 +20041,6 @@ class Topology extends EventEmitter {
       options,
       // initial seedlist of servers to connect to
       seedlist: seedlist,
-      // initial state
-      state: STATE_CLOSED,
       // the topology description
       description: new TopologyDescription(
         topologyType,
@@ -23468,42 +20053,32 @@ class Topology extends EventEmitter {
       ),
       serverSelectionTimeoutMS: options.serverSelectionTimeoutMS,
       heartbeatFrequencyMS: options.heartbeatFrequencyMS,
-      minHeartbeatFrequencyMS: options.minHeartbeatFrequencyMS,
+      minHeartbeatIntervalMS: options.minHeartbeatIntervalMS,
       // allow users to override the cursor factory
       Cursor: options.cursorFactory || CoreCursor,
       // the bson parser
-      bson:
-        options.bson ||
-        new BSON([
-          BSON.Binary,
-          BSON.Code,
-          BSON.DBRef,
-          BSON.Decimal128,
-          BSON.Double,
-          BSON.Int32,
-          BSON.Long,
-          BSON.Map,
-          BSON.MaxKey,
-          BSON.MinKey,
-          BSON.ObjectId,
-          BSON.BSONRegExp,
-          BSON.Symbol,
-          BSON.Timestamp
-        ]),
+      bson: options.bson || new BSON(),
       // a map of server instances to normalized addresses
       servers: new Map(),
       // Server Session Pool
-      sessionPool: new ServerSessionPool(this),
+      sessionPool: null,
       // Active client sessions
-      sessions: new Set(),
+      sessions: [],
       // Promise library
       promiseLibrary: options.promiseLibrary || Promise,
       credentials: options.credentials,
       clusterTime: null,
 
       // timer management
-      connectionTimers: new Set()
+      monitorTimers: [],
+      iterationTimers: []
     };
+
+    // amend options for server instance creation
+    this.s.options.compression = { compressors: createCompressionInfo(options) };
+
+    // add client info
+    this.s.clientInfo = createClientInfo(options);
 
     if (options.srvHost) {
       this.s.srvPoller =
@@ -23527,9 +20102,6 @@ class Topology extends EventEmitter {
 
       this.on('topologyDescriptionChanged', this.s.detectTopologyDescriptionChange);
     }
-
-    // NOTE: remove this when NODE-1709 is resolved
-    this.setMaxListeners(Infinity);
   }
 
   /**
@@ -23544,6 +20116,17 @@ class Topology extends EventEmitter {
   }
 
   /**
+   * All raw connections
+   * @method
+   * @return {Connection[]}
+   */
+  connections() {
+    return Array.from(this.s.servers.values()).reduce((result, server) => {
+      return result.concat(server.s.pool.allConnections());
+    }, []);
+  }
+
+  /**
    * Initiate server connect
    *
    * @param {Object} [options] Optional settings
@@ -23553,40 +20136,33 @@ class Topology extends EventEmitter {
   connect(options, callback) {
     if (typeof options === 'function') (callback = options), (options = {});
     options = options || {};
-    if (this.s.state === STATE_CONNECTED) {
-      if (typeof callback === 'function') {
-        callback();
-      }
-
-      return;
-    }
-
-    stateTransition(this, STATE_CONNECTING);
 
     // emit SDAM monitoring events
-    this.emit('topologyOpening', new events.TopologyOpeningEvent(this.s.id));
+    this.emit('topologyOpening', new monitoring.TopologyOpeningEvent(this.s.id));
 
     // emit an event for the topology change
     this.emit(
       'topologyDescriptionChanged',
-      new events.TopologyDescriptionChangedEvent(
+      new monitoring.TopologyDescriptionChangedEvent(
         this.s.id,
         new TopologyDescription(TopologyType.Unknown), // initial is always Unknown
         this.s.description
       )
     );
 
-    // connect all known servers, then attempt server selection to connect
     connectServers(this, Array.from(this.s.description.servers.values()));
+    this.s.connected = true;
+
+    // otherwise, wait for a server to properly connect based on user provided read preference,
+    // or primary.
 
     translateReadPreference(options);
     const readPreference = options.readPreference || ReadPreference.primary;
-    this.selectServer(readPreferenceServerSelector(readPreference), options, err => {
-      if (err) {
-        this.close();
 
+    this.selectServer(readPreferenceServerSelector(readPreference), options, (err, server) => {
+      if (err) {
         if (typeof callback === 'function') {
-          callback(err);
+          callback(err, null);
         } else {
           this.emit('error', err);
         }
@@ -23594,11 +20170,27 @@ class Topology extends EventEmitter {
         return;
       }
 
-      stateTransition(this, STATE_CONNECTED);
-      this.emit('open', err, this);
-      this.emit('connect', this);
+      const errorHandler = err => {
+        server.removeListener('connect', connectHandler);
+        if (typeof callback === 'function') callback(err, null);
+      };
 
-      if (typeof callback === 'function') callback(err, this);
+      const connectHandler = (_, err) => {
+        server.removeListener('error', errorHandler);
+        this.emit('open', err, this);
+        this.emit('connect', this);
+
+        if (typeof callback === 'function') callback(err, this);
+      };
+
+      const STATE_CONNECTING = 1;
+      if (server.s.state === STATE_CONNECTING) {
+        server.once('error', errorHandler);
+        server.once('connect', connectHandler);
+        return;
+      }
+
+      connectHandler();
     });
   }
 
@@ -23606,28 +20198,20 @@ class Topology extends EventEmitter {
    * Close this topology
    */
   close(options, callback) {
-    if (typeof options === 'function') {
-      callback = options;
-      options = {};
-    }
-
-    if (typeof options === 'boolean') {
-      options = { force: options };
-    }
-
+    if (typeof options === 'function') (callback = options), (options = {});
     options = options || {};
-    if (this.s.state === STATE_CLOSED || this.s.state === STATE_CLOSING) {
-      if (typeof callback === 'function') {
-        callback();
-      }
 
-      return;
+    // clear all existing monitor timers
+    this.s.monitorTimers.map(timer => clearTimeout(timer));
+    this.s.monitorTimers = [];
+
+    this.s.iterationTimers.map(timer => clearTimeout(timer));
+    this.s.iterationTimers = [];
+
+    if (this.s.sessionPool) {
+      this.s.sessions.forEach(session => session.endSession());
+      this.s.sessionPool.endAllPooledSessions();
     }
-
-    stateTransition(this, STATE_CLOSING);
-
-    drainWaitQueue(this[kWaitQueue], new MongoError('Topology closed'));
-    drainTimerQueue(this.s.connectionTimers);
 
     if (this.s.srvPoller) {
       this.s.srvPoller.stop();
@@ -23642,26 +20226,32 @@ class Topology extends EventEmitter {
       delete this.s.detectTopologyDescriptionChange;
     }
 
-    this.s.sessions.forEach(session => session.endSession());
-    this.s.sessionPool.endAllPooledSessions(() => {
-      eachAsync(
-        Array.from(this.s.servers.values()),
-        (server, cb) => destroyServer(server, this, options, cb),
-        err => {
-          this.s.servers.clear();
+    const servers = this.s.servers;
+    if (servers.size === 0) {
+      this.s.connected = false;
+      if (typeof callback === 'function') {
+        callback(null, null);
+      }
 
+      return;
+    }
+
+    // destroy all child servers
+    let destroyed = 0;
+    servers.forEach(server =>
+      destroyServer(server, this, () => {
+        destroyed++;
+        if (destroyed === servers.size) {
           // emit an event for close
-          this.emit('topologyClosed', new events.TopologyClosedEvent(this.s.id));
+          this.emit('topologyClosed', new monitoring.TopologyClosedEvent(this.s.id));
 
-          stateTransition(this, STATE_CLOSED);
-          this.emit('close');
-
+          this.s.connected = false;
           if (typeof callback === 'function') {
-            callback(err);
+            callback(null, null);
           }
         }
-      );
-    });
+      })
+    );
   }
 
   /**
@@ -23682,8 +20272,6 @@ class Topology extends EventEmitter {
         let readPreference;
         if (selector instanceof ReadPreference) {
           readPreference = selector;
-        } else if (typeof selector === 'string') {
-          readPreference = new ReadPreference(selector);
         } else {
           translateReadPreference(options);
           readPreference = options.readPreference || ReadPreference.primary;
@@ -23706,42 +20294,30 @@ class Topology extends EventEmitter {
     const transaction = session && session.transaction;
 
     if (isSharded && transaction && transaction.server) {
-      callback(undefined, transaction.server);
+      callback(null, transaction.server);
       return;
     }
 
-    // support server selection by options with readPreference
-    let serverSelector = selector;
-    if (typeof selector === 'object') {
-      const readPreference = selector.readPreference
-        ? selector.readPreference
-        : ReadPreference.primary;
+    // clear out any existing iteration timers
+    this.s.iterationTimers.map(timer => clearTimeout(timer));
+    this.s.iterationTimers = [];
 
-      serverSelector = readPreferenceServerSelector(readPreference);
-    }
+    selectServers(
+      this,
+      selector,
+      options.serverSelectionTimeoutMS,
+      process.hrtime(),
+      (err, servers) => {
+        if (err) return callback(err, null);
 
-    const waitQueueMember = {
-      serverSelector,
-      transaction,
-      callback
-    };
+        const selectedServer = randomSelection(servers);
+        if (isSharded && transaction && transaction.isActive) {
+          transaction.pinServer(selectedServer);
+        }
 
-    const serverSelectionTimeoutMS = options.serverSelectionTimeoutMS;
-    if (serverSelectionTimeoutMS) {
-      waitQueueMember.timer = setTimeout(() => {
-        waitQueueMember[kCancelled] = true;
-        waitQueueMember.timer = undefined;
-        const timeoutError = new MongoServerSelectionError(
-          `Server selection timed out after ${serverSelectionTimeoutMS} ms`,
-          this.description
-        );
-
-        waitQueueMember.callback(timeoutError);
-      }, serverSelectionTimeoutMS);
-    }
-
-    this[kWaitQueue].push(waitQueueMember);
-    processWaitQueue(this);
+        callback(null, selectedServer);
+      }
+    );
   }
 
   // Sessions related methods
@@ -23750,11 +20326,10 @@ class Topology extends EventEmitter {
    * @return Whether the topology should initiate selection to determine session support
    */
   shouldCheckForSessionSupport() {
-    if (this.description.type === TopologyType.Single) {
-      return !this.description.hasKnownServers;
-    }
-
-    return !this.description.hasDataBearingServers;
+    return (
+      (this.description.type === TopologyType.Single && !this.description.hasKnownServers) ||
+      !this.description.hasDataBearingServers
+    );
   }
 
   /**
@@ -23770,10 +20345,10 @@ class Topology extends EventEmitter {
   startSession(options, clientOptions) {
     const session = new ClientSession(this, this.s.sessionPool, options, clientOptions);
     session.once('ended', () => {
-      this.s.sessions.delete(session);
+      this.s.sessions = this.s.sessions.filter(s => !s.equals(session));
     });
 
-    this.s.sessions.add(session);
+    this.s.sessions.push(session);
     return session;
   }
 
@@ -23813,6 +20388,27 @@ class Topology extends EventEmitter {
     const previousTopologyDescription = this.s.description;
     const previousServerDescription = this.s.description.servers.get(serverDescription.address);
 
+    // first update the TopologyDescription
+    this.s.description = this.s.description.update(serverDescription);
+    if (this.s.description.compatibilityError) {
+      this.emit('error', new MongoError(this.s.description.compatibilityError));
+      return;
+    }
+
+    // emit monitoring events for this change
+    this.emit(
+      'serverDescriptionChanged',
+      new monitoring.ServerDescriptionChangedEvent(
+        this.s.id,
+        serverDescription.address,
+        previousServerDescription,
+        this.s.description.servers.get(serverDescription.address)
+      )
+    );
+
+    // update server list from updated descriptions
+    updateServers(this, serverDescription);
+
     // Driver Sessions Spec: "Whenever a driver receives a cluster time from
     // a server it MUST compare it to the current highest seen cluster time
     // for the deployment. If the new cluster time is higher than the
@@ -23824,50 +20420,14 @@ class Topology extends EventEmitter {
       resolveClusterTime(this, clusterTime);
     }
 
-    // If we already know all the information contained in this updated description, then
-    // we don't need to emit SDAM events, but still need to update the description, in order
-    // to keep client-tracked attributes like last update time and round trip time up to date
-    const equalDescriptions =
-      previousServerDescription && previousServerDescription.equals(serverDescription);
-
-    // first update the TopologyDescription
-    this.s.description = this.s.description.update(serverDescription);
-    if (this.s.description.compatibilityError) {
-      this.emit('error', new MongoError(this.s.description.compatibilityError));
-      return;
-    }
-
-    // emit monitoring events for this change
-    if (!equalDescriptions) {
-      this.emit(
-        'serverDescriptionChanged',
-        new events.ServerDescriptionChangedEvent(
-          this.s.id,
-          serverDescription.address,
-          previousServerDescription,
-          this.s.description.servers.get(serverDescription.address)
-        )
-      );
-    }
-
-    // update server list from updated descriptions
-    updateServers(this, serverDescription);
-
-    // attempt to resolve any outstanding server selection attempts
-    if (this[kWaitQueue].length > 0) {
-      processWaitQueue(this);
-    }
-
-    if (!equalDescriptions) {
-      this.emit(
-        'topologyDescriptionChanged',
-        new events.TopologyDescriptionChangedEvent(
-          this.s.id,
-          previousTopologyDescription,
-          this.s.description
-        )
-      );
-    }
+    this.emit(
+      'topologyDescriptionChanged',
+      new monitoring.TopologyDescriptionChangedEvent(
+        this.s.id,
+        previousTopologyDescription,
+        this.s.description
+      )
+    );
   }
 
   auth(credentials, callback) {
@@ -23956,7 +20516,7 @@ class Topology extends EventEmitter {
 
     this.selectServer(readPreferenceServerSelector(readPreference), options, (err, server) => {
       if (err) {
-        callback(err);
+        callback(err, null);
         return;
       }
 
@@ -24017,16 +20577,19 @@ class Topology extends EventEmitter {
     return new CursorClass(topology, ns, cmd, options);
   }
 
-  get clientMetadata() {
-    return this.s.options.metadata;
+  get clientInfo() {
+    return this.s.clientInfo;
   }
 
+  // Legacy methods for compat with old topology types
   isConnected() {
-    return this.s.state === STATE_CONNECTED;
+    // console.log('not implemented: `isConnected`');
+    return true;
   }
 
   isDestroyed() {
-    return this.s.state === STATE_CLOSED;
+    // console.log('not implemented: `isDestroyed`');
+    return false;
   }
 
   unref() {
@@ -24080,20 +20643,16 @@ function isWriteCommand(command) {
  *
  * @param {Server} server
  */
-function destroyServer(server, topology, options, callback) {
-  options = options || {};
+function destroyServer(server, topology, callback) {
   LOCAL_SERVER_EVENTS.forEach(event => server.removeAllListeners(event));
 
-  server.destroy(options, () => {
+  server.destroy(() => {
     topology.emit(
       'serverClosed',
-      new events.ServerClosedEvent(topology.s.id, server.description.address)
+      new monitoring.ServerClosedEvent(topology.s.id, server.description.address)
     );
 
-    SERVER_RELAY_EVENTS.forEach(event => server.removeAllListeners(event));
-    if (typeof callback === 'function') {
-      callback();
-    }
+    if (typeof callback === 'function') callback(null, null);
   });
 }
 
@@ -24120,27 +20679,123 @@ function randomSelection(array) {
   return array[Math.floor(Math.random() * array.length)];
 }
 
-function createAndConnectServer(topology, serverDescription, connectDelay) {
+/**
+ * Selects servers using the provided selector
+ *
+ * @private
+ * @param {Topology} topology The topology to select servers from
+ * @param {function} selector The actual predicate used for selecting servers
+ * @param {Number} timeout The max time we are willing wait for selection
+ * @param {Number} start A high precision timestamp for the start of the selection process
+ * @param {function} callback The callback used to convey errors or the resultant servers
+ */
+function selectServers(topology, selector, timeout, start, callback) {
+  const duration = calculateDurationInMs(start);
+  if (duration >= timeout) {
+    return callback(new MongoTimeoutError(`Server selection timed out after ${timeout} ms`));
+  }
+
+  // ensure we are connected
+  if (!topology.s.connected) {
+    topology.connect();
+
+    // we want to make sure we're still within the requested timeout window
+    const failToConnectTimer = setTimeout(() => {
+      topology.removeListener('connect', connectHandler);
+      callback(new MongoTimeoutError('Server selection timed out waiting to connect'));
+    }, timeout - duration);
+
+    const connectHandler = () => {
+      clearTimeout(failToConnectTimer);
+      selectServers(topology, selector, timeout, process.hrtime(), callback);
+    };
+
+    topology.once('connect', connectHandler);
+    return;
+  }
+
+  // otherwise, attempt server selection
+  const serverDescriptions = Array.from(topology.description.servers.values());
+  let descriptions;
+
+  // support server selection by options with readPreference
+  if (typeof selector === 'object') {
+    const readPreference = selector.readPreference
+      ? selector.readPreference
+      : ReadPreference.primary;
+
+    selector = readPreferenceServerSelector(readPreference);
+  }
+
+  try {
+    descriptions = selector
+      ? selector(topology.description, serverDescriptions)
+      : serverDescriptions;
+  } catch (e) {
+    return callback(e, null);
+  }
+
+  if (descriptions.length) {
+    const servers = descriptions.map(description => topology.s.servers.get(description.address));
+    return callback(null, servers);
+  }
+
+  const retrySelection = () => {
+    // clear all existing monitor timers
+    topology.s.monitorTimers.map(timer => clearTimeout(timer));
+    topology.s.monitorTimers = [];
+
+    // ensure all server monitors attempt monitoring soon
+    topology.s.servers.forEach(server => {
+      const timer = setTimeout(
+        () => server.monitor({ heartbeatFrequencyMS: topology.description.heartbeatFrequencyMS }),
+        TOPOLOGY_DEFAULTS.minHeartbeatFrequencyMS
+      );
+
+      topology.s.monitorTimers.push(timer);
+    });
+
+    const descriptionChangedHandler = () => {
+      // successful iteration, clear the check timer
+      clearTimeout(iterationTimer);
+      topology.s.iterationTimers.splice(timerIndex, 1);
+
+      if (topology.description.error) {
+        callback(topology.description.error, null);
+        return;
+      }
+
+      // topology description has changed due to monitoring, reattempt server selection
+      selectServers(topology, selector, timeout, start, callback);
+    };
+
+    const iterationTimer = setTimeout(() => {
+      topology.removeListener('topologyDescriptionChanged', descriptionChangedHandler);
+      callback(new MongoTimeoutError(`Server selection timed out after ${timeout} ms`));
+    }, timeout - duration);
+
+    // track this timer in case we need to clean it up outside this loop
+    const timerIndex = topology.s.iterationTimers.push(iterationTimer);
+
+    topology.once('topologyDescriptionChanged', descriptionChangedHandler);
+  };
+
+  retrySelection();
+}
+
+function createAndConnectServer(topology, serverDescription) {
   topology.emit(
     'serverOpening',
-    new events.ServerOpeningEvent(topology.s.id, serverDescription.address)
+    new monitoring.ServerOpeningEvent(topology.s.id, serverDescription.address)
   );
 
   const server = new Server(serverDescription, topology.s.options, topology);
   relayEvents(server, topology, SERVER_RELAY_EVENTS);
 
+  server.once('connect', serverConnectEventHandler(server, topology));
   server.on('descriptionReceived', topology.serverUpdateHandler.bind(topology));
-
-  if (connectDelay) {
-    const connectTimer = setTimeout(() => {
-      clearAndRemoveTimerFrom(connectTimer, topology.s.connectionTimers);
-      server.connect();
-    }, connectDelay);
-
-    topology.s.connectionTimers.add(connectTimer);
-    return server;
-  }
-
+  server.on('error', serverErrorEventHandler(server, topology));
+  server.on('close', () => topology.emit('close', server));
   server.connect();
   return server;
 }
@@ -24188,6 +20843,31 @@ function updateServers(topology, incomingServerDescription) {
     // prepare server for garbage collection
     destroyServer(server, topology);
   }
+}
+
+function serverConnectEventHandler(server, topology) {
+  return function(/* isMaster, err */) {
+    server.monitor({
+      initial: true,
+      heartbeatFrequencyMS: topology.description.heartbeatFrequencyMS
+    });
+  };
+}
+
+function serverErrorEventHandler(server, topology) {
+  return function(err) {
+    topology.emit(
+      'serverClosed',
+      new monitoring.ServerClosedEvent(topology.s.id, server.description.address)
+    );
+
+    if (err instanceof MongoParseError || isSDAMUnrecoverableError(err)) {
+      resetServerState(server, err, { clearPool: true });
+      return;
+    }
+
+    resetServerState(server, err);
+  };
 }
 
 function executeWriteOperation(args, options, callback) {
@@ -24243,6 +20923,34 @@ function executeWriteOperation(args, options, callback) {
   });
 }
 
+/**
+ * Resets the internal state of this server to `Unknown` by simulating an empty ismaster
+ *
+ * @private
+ * @param {Server} server
+ * @param {MongoError} error The error that caused the state reset
+ * @param {object} [options] Optional settings
+ * @param {boolean} [options.clearPool=false] Pool should be cleared out on state reset
+ */
+function resetServerState(server, error, options) {
+  options = Object.assign({}, { clearPool: false }, options);
+
+  function resetState() {
+    server.emit(
+      'descriptionReceived',
+      new ServerDescription(server.description.address, null, { error })
+    );
+    server.monitor();
+  }
+
+  if (options.clearPool && server.s.pool) {
+    server.s.pool.reset(() => resetState());
+    return;
+  }
+
+  resetState();
+}
+
 function translateReadPreference(options) {
   if (options.readPreference == null) {
     return;
@@ -24278,72 +20986,13 @@ function srvPollingHandler(topology) {
 
     topology.emit(
       'topologyDescriptionChanged',
-      new events.TopologyDescriptionChangedEvent(
+      new monitoring.TopologyDescriptionChangedEvent(
         topology.s.id,
         previousTopologyDescription,
         topology.s.description
       )
     );
   };
-}
-
-function drainWaitQueue(queue, err) {
-  while (queue.length) {
-    const waitQueueMember = queue.shift();
-    clearTimeout(waitQueueMember.timer);
-    if (!waitQueueMember[kCancelled]) {
-      waitQueueMember.callback(err);
-    }
-  }
-}
-
-function processWaitQueue(topology) {
-  if (topology.s.state === STATE_CLOSED) {
-    drainWaitQueue(topology[kWaitQueue], new MongoError('Topology is closed, please connect'));
-    return;
-  }
-
-  const serverDescriptions = Array.from(topology.description.servers.values());
-  const membersToProcess = topology[kWaitQueue].length;
-  for (let i = 0; i < membersToProcess && topology[kWaitQueue].length; ++i) {
-    const waitQueueMember = topology[kWaitQueue].shift();
-    if (waitQueueMember[kCancelled]) {
-      continue;
-    }
-
-    let selectedDescriptions;
-    try {
-      const serverSelector = waitQueueMember.serverSelector;
-      selectedDescriptions = serverSelector
-        ? serverSelector(topology.description, serverDescriptions)
-        : serverDescriptions;
-    } catch (e) {
-      clearTimeout(waitQueueMember.timer);
-      waitQueueMember.callback(e);
-      continue;
-    }
-
-    if (selectedDescriptions.length === 0) {
-      topology[kWaitQueue].push(waitQueueMember);
-      continue;
-    }
-
-    const selectedServerDescription = randomSelection(selectedDescriptions);
-    const selectedServer = topology.s.servers.get(selectedServerDescription.address);
-    const transaction = waitQueueMember.transaction;
-    const isSharded = topology.description.type === TopologyType.Sharded;
-    if (isSharded && transaction && transaction.isActive) {
-      transaction.pinServer(selectedServer);
-    }
-
-    clearTimeout(waitQueueMember.timer);
-    waitQueueMember.callback(undefined, selectedServer);
-  }
-
-  if (topology[kWaitQueue].length > 0) {
-    // ensure all server monitors attempt monitoring soon
-    topology.s.servers.forEach(server => process.nextTick(() => server.requestCheck()));
-  }
 }
 
 /**
@@ -24430,9 +21079,7 @@ function processWaitQueue(topology) {
  * @type {object}
  */
 
-module.exports = {
-  Topology
-};
+module.exports = Topology;
 
 
 /***/ }),
@@ -24446,16 +21093,24 @@ module.exports = {
 
 "use strict";
 
-const ServerType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").ServerType;
+const ServerType = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerType;
 const ServerDescription = __webpack_require__(/*! ./server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerDescription;
 const WIRE_CONSTANTS = __webpack_require__(/*! ../wireprotocol/constants */ "./node_modules/mongodb/lib/core/wireprotocol/constants.js");
-const TopologyType = __webpack_require__(/*! ./common */ "./node_modules/mongodb/lib/core/sdam/common.js").TopologyType;
 
 // contstants related to compatability checks
 const MIN_SUPPORTED_SERVER_VERSION = WIRE_CONSTANTS.MIN_SUPPORTED_SERVER_VERSION;
 const MAX_SUPPORTED_SERVER_VERSION = WIRE_CONSTANTS.MAX_SUPPORTED_SERVER_VERSION;
 const MIN_SUPPORTED_WIRE_VERSION = WIRE_CONSTANTS.MIN_SUPPORTED_WIRE_VERSION;
 const MAX_SUPPORTED_WIRE_VERSION = WIRE_CONSTANTS.MAX_SUPPORTED_WIRE_VERSION;
+
+// An enumeration of topology types we know about
+const TopologyType = {
+  Single: 'Single',
+  ReplicaSetNoPrimary: 'ReplicaSetNoPrimary',
+  ReplicaSetWithPrimary: 'ReplicaSetWithPrimary',
+  Sharded: 'Sharded',
+  Unknown: 'Unknown'
+};
 
 // Representation of a deployment of servers
 class TopologyDescription {
@@ -24475,7 +21130,8 @@ class TopologyDescription {
     maxSetVersion,
     maxElectionId,
     commonWireVersion,
-    options
+    options,
+    error
   ) {
     options = options || {};
 
@@ -24493,10 +21149,9 @@ class TopologyDescription {
     this.logicalSessionTimeoutMinutes = null;
     this.heartbeatFrequencyMS = options.heartbeatFrequencyMS || 0;
     this.localThresholdMS = options.localThresholdMS || 0;
+    this.options = options;
+    this.error = error;
     this.commonWireVersion = commonWireVersion || null;
-
-    // save this locally, but don't display when printing the instance out
-    Object.defineProperty(this, 'options', { value: options, enumberable: false });
 
     // determine server compatibility
     for (const serverDescription of this.servers.values()) {
@@ -24504,12 +21159,16 @@ class TopologyDescription {
 
       if (serverDescription.minWireVersion > MAX_SUPPORTED_WIRE_VERSION) {
         this.compatible = false;
-        this.compatibilityError = `Server at ${serverDescription.address} requires wire version ${serverDescription.minWireVersion}, but this version of the driver only supports up to ${MAX_SUPPORTED_WIRE_VERSION} (MongoDB ${MAX_SUPPORTED_SERVER_VERSION})`;
+        this.compatibilityError = `Server at ${serverDescription.address} requires wire version ${
+          serverDescription.minWireVersion
+        }, but this version of the driver only supports up to ${MAX_SUPPORTED_WIRE_VERSION} (MongoDB ${MAX_SUPPORTED_SERVER_VERSION})`;
       }
 
       if (serverDescription.maxWireVersion < MIN_SUPPORTED_WIRE_VERSION) {
         this.compatible = false;
-        this.compatibilityError = `Server at ${serverDescription.address} reports wire version ${serverDescription.maxWireVersion}, but this version of the driver requires at least ${MIN_SUPPORTED_WIRE_VERSION} (MongoDB ${MIN_SUPPORTED_SERVER_VERSION}).`;
+        this.compatibilityError = `Server at ${serverDescription.address} reports wire version ${
+          serverDescription.maxWireVersion
+        }, but this version of the driver requires at least ${MIN_SUPPORTED_WIRE_VERSION} (MongoDB ${MIN_SUPPORTED_SERVER_VERSION}).`;
         break;
       }
     }
@@ -24578,6 +21237,7 @@ class TopologyDescription {
     let maxSetVersion = this.maxSetVersion;
     let maxElectionId = this.maxElectionId;
     let commonWireVersion = this.commonWireVersion;
+    let error = serverDescription.error || null;
 
     const serverType = serverDescription.type;
     let serverDescriptions = new Map(this.servers);
@@ -24603,7 +21263,8 @@ class TopologyDescription {
         maxSetVersion,
         maxElectionId,
         commonWireVersion,
-        this.options
+        this.options,
+        error
       );
     }
 
@@ -24622,7 +21283,7 @@ class TopologyDescription {
     }
 
     if (topologyType === TopologyType.ReplicaSetNoPrimary) {
-      if ([ServerType.Standalone, ServerType.Mongos].indexOf(serverType) >= 0) {
+      if ([ServerType.Mongos, ServerType.Unknown].indexOf(serverType) >= 0) {
         serverDescriptions.delete(address);
       }
 
@@ -24684,22 +21345,16 @@ class TopologyDescription {
       maxSetVersion,
       maxElectionId,
       commonWireVersion,
-      this.options
+      this.options,
+      error
     );
-  }
-
-  get error() {
-    const descriptionsWithError = Array.from(this.servers.values()).filter(sd => sd.error);
-    if (descriptionsWithError.length > 0) {
-      return descriptionsWithError[0].error;
-    }
   }
 
   /**
    * Determines if the topology description has any known servers
    */
   get hasKnownServers() {
-    return Array.from(this.servers.values()).some(sd => sd.type !== ServerType.Unknown);
+    return Array.from(this.servers.values()).some(sd => sd.type !== ServerDescription.Unknown);
   }
 
   /**
@@ -24726,26 +21381,6 @@ function topologyTypeForServerType(serverType) {
   return TopologyType.ReplicaSetNoPrimary;
 }
 
-function compareObjectId(oid1, oid2) {
-  if (oid1 == null) {
-    return -1;
-  }
-
-  if (oid2 == null) {
-    return 1;
-  }
-
-  if (oid1.id instanceof Buffer && oid2.id instanceof Buffer) {
-    const oid1Buffer = oid1.id;
-    const oid2Buffer = oid2.id;
-    return oid1Buffer.compare(oid2Buffer);
-  }
-
-  const oid1String = oid1.toString();
-  const oid2String = oid2.toString();
-  return oid1String.localeCompare(oid2String);
-}
-
 function updateRsFromPrimary(
   serverDescriptions,
   setName,
@@ -24759,13 +21394,11 @@ function updateRsFromPrimary(
     return [checkHasPrimary(serverDescriptions), setName, maxSetVersion, maxElectionId];
   }
 
-  const electionId = serverDescription.electionId ? serverDescription.electionId : null;
-  if (serverDescription.setVersion && electionId) {
-    if (maxSetVersion && maxElectionId) {
-      if (
-        maxSetVersion > serverDescription.setVersion ||
-        compareObjectId(maxElectionId, electionId) > 0
-      ) {
+  const electionIdOID = serverDescription.electionId ? serverDescription.electionId.$oid : null;
+  const maxElectionIdOID = maxElectionId ? maxElectionId.$oid : null;
+  if (serverDescription.setVersion != null && electionIdOID != null) {
+    if (maxSetVersion != null && maxElectionIdOID != null) {
+      if (maxSetVersion > serverDescription.setVersion || maxElectionIdOID > electionIdOID) {
         // this primary is stale, we must remove it
         serverDescriptions.set(
           serverDescription.address,
@@ -24809,11 +21442,9 @@ function updateRsFromPrimary(
   // Remove hosts not in the response.
   const currentAddresses = Array.from(serverDescriptions.keys());
   const responseAddresses = serverDescription.allHosts;
-  currentAddresses
-    .filter(addr => responseAddresses.indexOf(addr) === -1)
-    .forEach(address => {
-      serverDescriptions.delete(address);
-    });
+  currentAddresses.filter(addr => responseAddresses.indexOf(addr) === -1).forEach(address => {
+    serverDescriptions.delete(address);
+  });
 
   return [checkHasPrimary(serverDescriptions), setName, maxSetVersion, maxElectionId];
 }
@@ -24866,6 +21497,7 @@ function checkHasPrimary(serverDescriptions) {
 }
 
 module.exports = {
+  TopologyType,
   TopologyDescription
 };
 
@@ -25104,8 +21736,10 @@ class ClientSession extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      endTransaction(this, 'commitTransaction', (err, reply) =>
-        err ? reject(err) : resolve(reply)
+      endTransaction(
+        this,
+        'commitTransaction',
+        (err, reply) => (err ? reject(err) : resolve(reply))
       );
     });
   }
@@ -25123,8 +21757,10 @@ class ClientSession extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      endTransaction(this, 'abortTransaction', (err, reply) =>
-        err ? reject(err) : resolve(reply)
+      endTransaction(
+        this,
+        'abortTransaction',
+        (err, reply) => (err ? reject(err) : resolve(reply))
       );
     });
   }
@@ -25470,23 +22106,10 @@ class ServerSessionPool {
    * Ends all sessions in the session pool.
    * @ignore
    */
-  endAllPooledSessions(callback) {
+  endAllPooledSessions() {
     if (this.sessions.length) {
-      this.topology.endSessions(
-        this.sessions.map(session => session.id),
-        () => {
-          this.sessions = [];
-          if (typeof callback === 'function') {
-            callback();
-          }
-        }
-      );
-
-      return;
-    }
-
-    if (typeof callback === 'function') {
-      callback();
+      this.topology.endSessions(this.sessions.map(session => session.id));
+      this.sessions = [];
     }
   }
 
@@ -25565,7 +22188,6 @@ function commandSupportsReadConcern(command, options) {
 /**
  * Optionally decorate a command with sessions specific keys
  *
- * @ignore
  * @param {ClientSession} session the session tracking transaction state
  * @param {Object} command the command to decorate
  * @param {Object} topology the topology for tracking the cluster time
@@ -25679,15 +22301,16 @@ const Logger = __webpack_require__(/*! ../connection/logger */ "./node_modules/m
 const retrieveBSON = __webpack_require__(/*! ../connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").retrieveBSON;
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
 const Server = __webpack_require__(/*! ./server */ "./node_modules/mongodb/lib/core/topologies/server.js");
+const clone = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").clone;
 const diff = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").diff;
 const cloneOptions = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").cloneOptions;
+const createClientInfo = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createClientInfo;
 const SessionMixins = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").SessionMixins;
 const isRetryableWritesSupported = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").isRetryableWritesSupported;
 const relayEvents = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").relayEvents;
 const isRetryableError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").isRetryableError;
 const BSON = retrieveBSON();
 const getMMAPError = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").getMMAPError;
-const makeClientMetadata = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeClientMetadata;
 
 /**
  * @fileOverview The **Mongos** class is a class that represents a Mongos Proxy topology and is
@@ -25700,15 +22323,14 @@ var DISCONNECTED = 'disconnected';
 var CONNECTING = 'connecting';
 var CONNECTED = 'connected';
 var UNREFERENCED = 'unreferenced';
-var DESTROYING = 'destroying';
 var DESTROYED = 'destroyed';
 
 function stateTransition(self, newState) {
   var legalTransitions = {
-    disconnected: [CONNECTING, DESTROYING, DESTROYED, DISCONNECTED],
-    connecting: [CONNECTING, DESTROYING, DESTROYED, CONNECTED, DISCONNECTED],
-    connected: [CONNECTED, DISCONNECTED, DESTROYING, DESTROYED, UNREFERENCED],
-    unreferenced: [UNREFERENCED, DESTROYING, DESTROYED],
+    disconnected: [CONNECTING, DESTROYED, DISCONNECTED],
+    connecting: [CONNECTING, DESTROYED, CONNECTED, DISCONNECTED],
+    connected: [CONNECTED, DISCONNECTED, DESTROYED, UNREFERENCED],
+    unreferenced: [UNREFERENCED, DESTROYED],
     destroyed: [DESTROYED]
   };
 
@@ -25717,9 +22339,9 @@ function stateTransition(self, newState) {
   if (legalStates && legalStates.indexOf(newState) !== -1) {
     self.state = newState;
   } else {
-    self.s.logger.error(
+    self.logger.error(
       f(
-        'Mongos with id [%s] failed attempted illegal state transition from [%s] to [%s] only following state allowed [%s]',
+        'Pool with id [%s] failed attempted illegal state transition from [%s] to [%s] only following state allowed [%s]',
         self.id,
         self.state,
         newState,
@@ -25786,7 +22408,7 @@ var Mongos = function(seedlist, options) {
 
   // Internal state
   this.s = {
-    options: Object.assign({ metadata: makeClientMetadata(options) }, options),
+    options: Object.assign({}, options),
     // BSON instance
     bson:
       options.bson ||
@@ -25823,8 +22445,13 @@ var Mongos = function(seedlist, options) {
     // Are we running in debug mode
     debug: typeof options.debug === 'boolean' ? options.debug : false,
     // localThresholdMS
-    localThresholdMS: options.localThresholdMS || 15
+    localThresholdMS: options.localThresholdMS || 15,
+    // Client info
+    clientInfo: createClientInfo(options)
   };
+
+  // Set the client info
+  this.s.options.clientInfo = createClientInfo(options);
 
   // Log info warning if the socketTimeout < haInterval as it will cause
   // a lot of recycled connections to happen.
@@ -25930,7 +22557,8 @@ Mongos.prototype.connect = function(options) {
       Object.assign({}, self.s.options, x, options, {
         reconnect: false,
         monitoring: false,
-        parent: self
+        parent: self,
+        clientInfo: clone(self.s.clientInfo)
       })
     );
 
@@ -25957,10 +22585,7 @@ Mongos.prototype.auth = function(credentials, callback) {
 
 function handleEvent(self) {
   return function() {
-    if (self.state === DESTROYED || self.state === DESTROYING) {
-      return;
-    }
-
+    if (self.state === DESTROYED) return;
     // Move to list of disconnectedProxies
     moveServerFrom(self.connectedProxies, self.disconnectedProxies, this);
     // Emit the initial topology
@@ -26034,8 +22659,7 @@ function handleInitialConnectEvent(self, event) {
           self.s.logger.warn(f(message, _this.name));
         }
 
-        // This is not a mongos proxy, destroy and remove it completely
-        _this.destroy(true);
+        // This is not a mongos proxy, remove it completely
         removeProxyFrom(self.connectingProxies, _this);
         // Emit the left event
         self.emit('left', 'server', _this);
@@ -26114,9 +22738,10 @@ function connectProxies(self, servers) {
       server.connect(self.s.connectOptions);
     }, timeoutInterval);
   }
-
   // Start all the servers
-  servers.forEach(server => connect(server, timeoutInterval++));
+  while (servers.length > 0) {
+    connect(servers.shift(), timeoutInterval++);
+  }
 }
 
 function pickProxy(self, session) {
@@ -26209,14 +22834,14 @@ function reconnectProxies(self, proxies, callback) {
       count = count - 1;
 
       // Destroyed
-      if (self.state === DESTROYED || self.state === DESTROYING || self.state === UNREFERENCED) {
+      if (self.state === DESTROYED || self.state === UNREFERENCED) {
         moveServerFrom(self.connectingProxies, self.disconnectedProxies, _self);
         return this.destroy();
       }
 
       if (event === 'connect') {
         // Destroyed
-        if (self.state === DESTROYED || self.state === DESTROYING || self.state === UNREFERENCED) {
+        if (self.state === DESTROYED || self.state === UNREFERENCED) {
           moveServerFrom(self.connectingProxies, self.disconnectedProxies, _self);
           return _self.destroy();
         }
@@ -26260,7 +22885,7 @@ function reconnectProxies(self, proxies, callback) {
   function execute(_server, i) {
     setTimeout(function() {
       // Destroyed
-      if (self.state === DESTROYED || self.state === DESTROYING || self.state === UNREFERENCED) {
+      if (self.state === DESTROYED || self.state === UNREFERENCED) {
         return;
       }
 
@@ -26271,11 +22896,12 @@ function reconnectProxies(self, proxies, callback) {
           port: parseInt(_server.name.split(':')[1], 10),
           reconnect: false,
           monitoring: false,
-          parent: self
+          parent: self,
+          clientInfo: clone(self.s.clientInfo)
         })
       );
 
-      destroyServer(_server, { force: true });
+      destroyServer(_server);
       removeProxyFrom(self.disconnectedProxies, _server);
 
       // Relay the server description change
@@ -26312,17 +22938,9 @@ function reconnectProxies(self, proxies, callback) {
 function topologyMonitor(self, options) {
   options = options || {};
 
-  // no need to set up the monitor if we're already closed
-  if (self.state === DESTROYED || self.state === DESTROYING || self.state === UNREFERENCED) {
-    return;
-  }
-
   // Set momitoring timeout
   self.haTimeoutId = setTimeout(function() {
-    if (self.state === DESTROYED || self.state === DESTROYING || self.state === UNREFERENCED) {
-      return;
-    }
-
+    if (self.state === DESTROYED || self.state === UNREFERENCED) return;
     // If we have a primary and a disconnect handler, execute
     // buffered operations
     if (self.isConnected() && self.s.disconnectHandler) {
@@ -26353,11 +22971,7 @@ function topologyMonitor(self, options) {
           socketTimeout: self.s.options.connectionTimeout || 2000
         },
         function(err, r) {
-          if (
-            self.state === DESTROYED ||
-            self.state === DESTROYING ||
-            self.state === UNREFERENCED
-          ) {
+          if (self.state === DESTROYED || self.state === UNREFERENCED) {
             // Move from connectingProxies
             moveServerFrom(self.connectedProxies, self.disconnectedProxies, _server);
             _server.destroy();
@@ -26406,9 +23020,7 @@ function topologyMonitor(self, options) {
 
       // Attempt to connect to any unknown servers
       return reconnectProxies(self, self.disconnectedProxies, function() {
-        if (self.state === DESTROYED || self.state === DESTROYING || self.state === UNREFERENCED) {
-          return;
-        }
+        if (self.state === DESTROYED || self.state === UNREFERENCED) return;
 
         // Are we connected ? emit connect event
         if (self.state === CONNECTING && options.firstConnect) {
@@ -26432,24 +23044,11 @@ function topologyMonitor(self, options) {
         count = count - 1;
 
         if (count === 0) {
-          if (
-            self.state === DESTROYED ||
-            self.state === DESTROYING ||
-            self.state === UNREFERENCED
-          ) {
-            return;
-          }
+          if (self.state === DESTROYED || self.state === UNREFERENCED) return;
 
           // Attempt to connect to any unknown servers
           reconnectProxies(self, self.disconnectedProxies, function() {
-            if (
-              self.state === DESTROYED ||
-              self.state === DESTROYING ||
-              self.state === UNREFERENCED
-            ) {
-              return;
-            }
-
+            if (self.state === DESTROYED || self.state === UNREFERENCED) return;
             // Perform topology monitor
             topologyMonitor(self);
           });
@@ -26490,14 +23089,6 @@ Mongos.prototype.unref = function() {
  * @method
  */
 Mongos.prototype.destroy = function(options, callback) {
-  if (typeof options === 'function') {
-    callback = options;
-    options = {};
-  }
-
-  options = options || {};
-
-  stateTransition(this, DESTROYING);
   if (this.haTimeoutId) {
     clearTimeout(this.haTimeoutId);
   }
@@ -26631,9 +23222,7 @@ Mongos.prototype.insert = function(ns, ops, options, callback) {
     (callback = options), (options = {}), (options = options || {});
   }
 
-  if (this.state === DESTROYED) {
-    return callback(new MongoError(f('topology was destroyed')));
-  }
+  if (this.state === DESTROYED) return callback(new MongoError(f('topology was destroyed')));
 
   // Not connected but we have a disconnecthandler
   if (!this.isConnected() && this.s.disconnectHandler != null) {
@@ -26667,9 +23256,7 @@ Mongos.prototype.update = function(ns, ops, options, callback) {
     (callback = options), (options = {}), (options = options || {});
   }
 
-  if (this.state === DESTROYED) {
-    return callback(new MongoError(f('topology was destroyed')));
-  }
+  if (this.state === DESTROYED) return callback(new MongoError(f('topology was destroyed')));
 
   // Not connected but we have a disconnecthandler
   if (!this.isConnected() && this.s.disconnectHandler != null) {
@@ -26703,9 +23290,7 @@ Mongos.prototype.remove = function(ns, ops, options, callback) {
     (callback = options), (options = {}), (options = options || {});
   }
 
-  if (this.state === DESTROYED) {
-    return callback(new MongoError(f('topology was destroyed')));
-  }
+  if (this.state === DESTROYED) return callback(new MongoError(f('topology was destroyed')));
 
   // Not connected but we have a disconnecthandler
   if (!this.isConnected() && this.s.disconnectHandler != null) {
@@ -26744,10 +23329,7 @@ Mongos.prototype.command = function(ns, cmd, options, callback) {
     (callback = options), (options = {}), (options = options || {});
   }
 
-  if (this.state === DESTROYED) {
-    return callback(new MongoError(f('topology was destroyed')));
-  }
-
+  if (this.state === DESTROYED) return callback(new MongoError(f('topology was destroyed')));
   var self = this;
 
   // Pick a proxy
@@ -27291,8 +23873,10 @@ const Logger = __webpack_require__(/*! ../connection/logger */ "./node_modules/m
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
 const Server = __webpack_require__(/*! ./server */ "./node_modules/mongodb/lib/core/topologies/server.js");
 const ReplSetState = __webpack_require__(/*! ./replset_state */ "./node_modules/mongodb/lib/core/topologies/replset_state.js");
+const clone = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").clone;
 const Timeout = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").Timeout;
 const Interval = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").Interval;
+const createClientInfo = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createClientInfo;
 const SessionMixins = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").SessionMixins;
 const isRetryableWritesSupported = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").isRetryableWritesSupported;
 const relayEvents = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").relayEvents;
@@ -27300,7 +23884,6 @@ const isRetryableError = __webpack_require__(/*! ../error */ "./node_modules/mon
 const BSON = retrieveBSON();
 const calculateDurationInMs = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").calculateDurationInMs;
 const getMMAPError = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").getMMAPError;
-const makeClientMetadata = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeClientMetadata;
 
 //
 // States
@@ -27420,7 +24003,7 @@ var ReplSet = function(seedlist, options) {
 
   // Internal state
   this.s = {
-    options: Object.assign({ metadata: makeClientMetadata(options) }, options),
+    options: Object.assign({}, options),
     // BSON instance
     bson:
       options.bson ||
@@ -27467,7 +24050,9 @@ var ReplSet = function(seedlist, options) {
     // Connect function options passed in
     connectOptions: {},
     // Are we running in debug mode
-    debug: typeof options.debug === 'boolean' ? options.debug : false
+    debug: typeof options.debug === 'boolean' ? options.debug : false,
+    // Client info
+    clientInfo: createClientInfo(options)
   };
 
   // Add handler for topology change
@@ -27555,34 +24140,27 @@ function rexecuteOperations(self) {
 }
 
 function connectNewServers(self, servers, callback) {
-  // No new servers
-  if (servers.length === 0) {
-    return callback();
-  }
-
   // Count lefts
   var count = servers.length;
   var error = null;
-
-  function done() {
-    count = count - 1;
-    if (count === 0) {
-      callback(error);
-    }
-  }
 
   // Handle events
   var _handleEvent = function(self, event) {
     return function(err) {
       var _self = this;
+      count = count - 1;
 
       // Destroyed
       if (self.state === DESTROYED || self.state === UNREFERENCED) {
-        this.destroy({ force: true });
-        return done();
+        return this.destroy({ force: true });
       }
 
       if (event === 'connect') {
+        // Destroyed
+        if (self.state === DESTROYED || self.state === UNREFERENCED) {
+          return _self.destroy({ force: true });
+        }
+
         // Update the state
         var result = self.s.replicaSetState.update(_self);
         // Update the state with the new server
@@ -27617,9 +24195,16 @@ function connectNewServers(self, servers, callback) {
 
       // Rexecute any stalled operation
       rexecuteOperations(self);
-      done();
+
+      // Are we done finish up callback
+      if (count === 0) {
+        callback(error);
+      }
     };
   };
+
+  // No new servers
+  if (count === 0) return callback();
 
   // Execute method
   function execute(_server, i) {
@@ -27629,17 +24214,6 @@ function connectNewServers(self, servers, callback) {
         return;
       }
 
-      // remove existing connecting server if it's failed to connect, otherwise
-      // wait for that server to connect
-      const existingServerIdx = self.s.connectingServers.findIndex(s => s.name === _server);
-      if (existingServerIdx >= 0) {
-        const connectingServer = self.s.connectingServers[existingServerIdx];
-        connectingServer.destroy({ force: true });
-
-        self.s.connectingServers.splice(existingServerIdx, 1);
-        return done();
-      }
-
       // Create a new server instance
       var server = new Server(
         Object.assign({}, self.s.options, {
@@ -27647,7 +24221,8 @@ function connectNewServers(self, servers, callback) {
           port: parseInt(_server.split(':')[1], 10),
           reconnect: false,
           monitoring: false,
-          parent: self
+          parent: self,
+          clientInfo: clone(self.s.clientInfo)
         })
       );
 
@@ -27666,7 +24241,6 @@ function connectNewServers(self, servers, callback) {
       // Command Monitoring events
       relayEvents(server, self, ['commandStarted', 'commandSucceeded', 'commandFailed']);
 
-      self.s.connectingServers.push(server);
       server.connect(self.s.connectOptions);
     }, i);
   }
@@ -28195,7 +24769,8 @@ ReplSet.prototype.connect = function(options) {
       Object.assign({}, self.s.options, x, options, {
         reconnect: false,
         monitoring: false,
-        parent: self
+        parent: self,
+        clientInfo: clone(self.s.clientInfo)
       })
     );
   });
@@ -28239,11 +24814,6 @@ ReplSet.prototype.auth = function(credentials, callback) {
  * @method
  */
 ReplSet.prototype.destroy = function(options, callback) {
-  if (typeof options === 'function') {
-    callback = options;
-    options = {};
-  }
-
   options = options || {};
 
   let destroyCount = this.s.connectingServers.length + 1; // +1 for the callback from `replicaSetState.destroy`
@@ -28495,7 +25065,6 @@ function executeWriteOperation(args, options, callback) {
 
     // Per SDAM, remove primary from replicaset
     if (self.s.replicaSetState.primary) {
-      self.s.replicaSetState.primary.destroy();
       self.s.replicaSetState.remove(self.s.replicaSetState.primary, { force: true });
     }
 
@@ -28657,7 +25226,6 @@ ReplSet.prototype.command = function(ns, cmd, options, callback) {
 
     // Per SDAM, remove primary from replicaset
     if (this.s.replicaSetState.primary) {
-      this.s.replicaSetState.primary.destroy();
       this.s.replicaSetState.remove(this.s.replicaSetState.primary, { force: true });
     }
 
@@ -29243,7 +25811,7 @@ ReplSetState.prototype.update = function(server) {
     removeFrom(server, self.unknownServers);
 
     // Destroy the instance
-    server.destroy({ force: true });
+    server.destroy();
 
     // Set the type of topology we have
     if (this.primary && !this.primary.equals(server)) {
@@ -29407,7 +25975,7 @@ ReplSetState.prototype.update = function(server) {
     // Signal primary left
     self.emit('left', 'primary', this.primary);
     // Destroy the instance
-    self.primary.destroy({ force: true });
+    self.primary.destroy();
     // Set the new instance
     self.primary = server;
     // Set the set information
@@ -29459,7 +26027,7 @@ ReplSetState.prototype.update = function(server) {
 
     // Remove primary
     if (this.primary && this.primary.name.toLowerCase() === serverName) {
-      server.destroy({ force: true });
+      server.destroy();
       this.primary = null;
       self.emit('left', 'primary', server);
     }
@@ -29511,7 +26079,7 @@ ReplSetState.prototype.update = function(server) {
 
     // Remove primary
     if (this.primary && this.primary.name.toLowerCase() === serverName) {
-      server.destroy({ force: true });
+      server.destroy();
       this.primary = null;
       self.emit('left', 'primary', server);
     }
@@ -29526,7 +26094,7 @@ ReplSetState.prototype.update = function(server) {
   //
   if (this.set[serverName] && this.set[serverName].type === ServerType.RSPrimary) {
     self.emit('left', 'primary', this.primary);
-    this.primary.destroy({ force: true });
+    this.primary.destroy();
     this.primary = null;
     this.topologyType = TopologyType.ReplicaSetNoPrimary;
     return false;
@@ -29998,13 +26566,13 @@ var inherits = __webpack_require__(/*! util */ "util").inherits,
   wireProtocol = __webpack_require__(/*! ../wireprotocol */ "./node_modules/mongodb/lib/core/wireprotocol/index.js"),
   CoreCursor = __webpack_require__(/*! ../cursor */ "./node_modules/mongodb/lib/core/cursor.js").CoreCursor,
   sdam = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js"),
+  createClientInfo = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createClientInfo,
   createCompressionInfo = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").createCompressionInfo,
   resolveClusterTime = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").resolveClusterTime,
   SessionMixins = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/topologies/shared.js").SessionMixins,
   relayEvents = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").relayEvents;
 
 const collationNotSupported = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").collationNotSupported;
-const makeClientMetadata = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").makeClientMetadata;
 
 // Used for filtering out fields for loggin
 var debugFields = [
@@ -30039,10 +26607,6 @@ var id = 0;
 var serverAccounting = false;
 var servers = {};
 var BSON = retrieveBSON();
-
-function topologyId(server) {
-  return server.s.parent == null ? server.id : server.s.parent.id;
-}
 
 /**
  * Creates a new Server instance
@@ -30105,7 +26669,7 @@ var Server = function(options) {
   // Internal state
   this.s = {
     // Options
-    options: Object.assign({ metadata: makeClientMetadata(options) }, options),
+    options: options,
     // Logger
     logger: Logger('Server', options),
     // Factory overrides
@@ -30140,6 +26704,8 @@ var Server = function(options) {
     // Monitoring timeout
     monitoringInterval:
       typeof options.monitoringInterval === 'number' ? options.monitoringInterval : 5000,
+    // Topology id
+    topologyId: -1,
     compression: { compressors: createCompressionInfo(options) },
     // Optional parent topology
     parent: options.parent
@@ -30160,6 +26726,8 @@ var Server = function(options) {
   this.initialConnect = true;
   // Default type
   this._type = 'server';
+  // Set the client info
+  this.clientInfo = createClientInfo(options);
 
   // Max Stalleness values
   // last time we updated the ismaster state
@@ -30192,13 +26760,6 @@ Object.defineProperty(Server.prototype, 'logicalSessionTimeoutMinutes', {
   get: function() {
     if (!this.ismaster) return null;
     return this.ismaster.logicalSessionTimeoutMinutes || null;
-  }
-});
-
-Object.defineProperty(Server.prototype, 'clientMetadata', {
-  enumerable: true,
-  get: function() {
-    return this.s.options.metadata;
   }
 });
 
@@ -30478,11 +27039,14 @@ Server.prototype.connect = function(options) {
 
   // Emit toplogy opening event if not in topology
   if (!self.s.inTopology) {
-    this.emit('topologyOpening', { topologyId: topologyId(self) });
+    this.emit('topologyOpening', { topologyId: self.id });
   }
 
   // Emit opening server event
-  self.emit('serverOpening', { topologyId: topologyId(self), address: self.name });
+  self.emit('serverOpening', {
+    topologyId: self.s.topologyId !== -1 ? self.s.topologyId : self.id,
+    address: self.name
+  });
 
   self.s.pool.connect();
 };
@@ -30832,11 +27396,6 @@ Server.prototype.destroy = function(options, callback) {
     return;
   }
 
-  if (typeof options === 'function') {
-    callback = options;
-    options = {};
-  }
-
   options = options || {};
   var self = this;
 
@@ -30872,11 +27431,14 @@ Server.prototype.destroy = function(options, callback) {
 
   // Emit opening server event
   if (self.listeners('serverClosed').length > 0)
-    self.emit('serverClosed', { topologyId: topologyId(self), address: self.name });
+    self.emit('serverClosed', {
+      topologyId: self.s.topologyId !== -1 ? self.s.topologyId : self.id,
+      address: self.name
+    });
 
   // Emit toplogy opening event if not in topology
   if (self.listeners('topologyClosed').length > 0 && !self.s.inTopology) {
-    self.emit('topologyClosed', { topologyId: topologyId(self) });
+    self.emit('topologyClosed', { topologyId: self.id });
   }
 
   if (self.s.logger.isDebug()) {
@@ -30986,8 +27548,12 @@ module.exports = Server;
 
 "use strict";
 
+
+const os = __webpack_require__(/*! os */ "os");
+const f = __webpack_require__(/*! util */ "util").format;
 const ReadPreference = __webpack_require__(/*! ./read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
-const TopologyType = __webpack_require__(/*! ../sdam/common */ "./node_modules/mongodb/lib/core/sdam/common.js").TopologyType;
+const Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer;
+const TopologyType = __webpack_require__(/*! ../sdam/topology_description */ "./node_modules/mongodb/lib/core/sdam/topology_description.js").TopologyType;
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
 
 const MMAPv1_RETRY_WRITES_ERROR_CODE = 20;
@@ -31000,6 +27566,51 @@ function emitSDAMEvent(self, event, description) {
   if (self.listeners(event).length > 0) {
     self.emit(event, description);
   }
+}
+
+// Get package.json variable
+var driverVersion = __webpack_require__(/*! ../../../package.json */ "./node_modules/mongodb/package.json").version;
+var nodejsversion = f('Node.js %s, %s', process.version, os.endianness());
+var type = os.type();
+var name = process.platform;
+var architecture = process.arch;
+var release = os.release();
+
+function createClientInfo(options) {
+  // Build default client information
+  var clientInfo = options.clientInfo
+    ? clone(options.clientInfo)
+    : {
+        driver: {
+          name: 'nodejs-core',
+          version: driverVersion
+        },
+        os: {
+          type: type,
+          name: name,
+          architecture: architecture,
+          version: release
+        }
+      };
+
+  // Is platform specified
+  if (clientInfo.platform && clientInfo.platform.indexOf('mongodb-core') === -1) {
+    clientInfo.platform = f('%s, mongodb-core: %s', clientInfo.platform, driverVersion);
+  } else if (!clientInfo.platform) {
+    clientInfo.platform = nodejsversion;
+  }
+
+  // Do we have an application specific string
+  if (options.appname) {
+    // Cut at 128 bytes
+    var buffer = Buffer.from(options.appname);
+    // Return the truncated appname
+    var appname = buffer.length > 128 ? buffer.slice(0, 128).toString('utf8') : options.appname;
+    // Add to the clientInfo
+    clientInfo.application = { name: appname };
+  }
+
+  return clientInfo;
 }
 
 function createCompressionInfo(options) {
@@ -31198,18 +27809,10 @@ function Interval(fn, time) {
 
 function Timeout(fn, time) {
   var timer = false;
-  var func = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = false;
-
-      fn();
-    }
-  };
 
   this.start = function() {
     if (!this.isRunning()) {
-      timer = setTimeout(func, time);
+      timer = setTimeout(fn, time);
     }
     return this;
   };
@@ -31221,6 +27824,7 @@ function Timeout(fn, time) {
   };
 
   this.isRunning = function() {
+    if (timer && timer._called) return false;
     return timer !== false;
   };
 }
@@ -31410,6 +28014,7 @@ module.exports.getTopologyType = getTopologyType;
 module.exports.emitServerDescriptionChanged = emitServerDescriptionChanged;
 module.exports.emitTopologyDescriptionChanged = emitTopologyDescriptionChanged;
 module.exports.cloneOptions = cloneOptions;
+module.exports.createClientInfo = createClientInfo;
 module.exports.createCompressionInfo = createCompressionInfo;
 module.exports.clone = clone;
 module.exports.diff = diff;
@@ -31417,7 +28022,6 @@ module.exports.Interval = Interval;
 module.exports.Timeout = Timeout;
 module.exports.isRetryableWritesSupported = isRetryableWritesSupported;
 module.exports.getMMAPError = getMMAPError;
-module.exports.topologyType = topologyType;
 
 
 /***/ }),
@@ -31432,9 +28036,6 @@ module.exports.topologyType = topologyType;
 "use strict";
 
 const MongoError = __webpack_require__(/*! ./error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const ReadPreference = __webpack_require__(/*! ./topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
-const ReadConcern = __webpack_require__(/*! ../read_concern */ "./node_modules/mongodb/lib/read_concern.js");
-const WriteConcern = __webpack_require__(/*! ../write_concern */ "./node_modules/mongodb/lib/write_concern.js");
 
 let TxnState;
 let stateMachine;
@@ -31525,26 +28126,18 @@ class Transaction {
     this.state = TxnState.NO_TRANSACTION;
     this.options = {};
 
-    const writeConcern = WriteConcern.fromOptions(options);
-    if (writeConcern) {
-      if (writeConcern.w <= 0) {
+    if (options.writeConcern || typeof options.w !== 'undefined') {
+      const w = options.writeConcern ? options.writeConcern.w : options.w;
+      if (w <= 0) {
         throw new MongoError('Transactions do not support unacknowledged write concern');
       }
 
-      this.options.writeConcern = writeConcern;
+      this.options.writeConcern = options.writeConcern ? options.writeConcern : { w: options.w };
     }
 
-    if (options.readConcern) {
-      this.options.readConcern = ReadConcern.fromOptions(options);
-    }
-
-    if (options.readPreference) {
-      this.options.readPreference = ReadPreference.fromOptions(options);
-    }
-
-    if (options.maxCommitTimeMS) {
-      this.options.maxTimeMS = options.maxCommitTimeMS;
-    }
+    if (options.readConcern) this.options.readConcern = options.readConcern;
+    if (options.readPreference) this.options.readPreference = options.readPreference;
+    if (options.maxCommitTimeMS) this.options.maxTimeMS = options.maxCommitTimeMS;
 
     // TODO: This isn't technically necessary
     this._pinnedServer = undefined;
@@ -31723,7 +28316,7 @@ function parseSrvConnectionString(uri, options, callback) {
           );
         }
 
-        result.query = Object.assign({}, record, result.query);
+        Object.assign(result.query, record);
       }
 
       // Set completed options back into the URL object.
@@ -32042,46 +28635,6 @@ function parseQueryString(query, options) {
   return Object.keys(result).length ? result : null;
 }
 
-/// Adds support for modern `tls` variants of out `ssl` options
-function translateTLSOptions(queryString) {
-  if (queryString.tls) {
-    queryString.ssl = queryString.tls;
-  }
-
-  if (queryString.tlsInsecure) {
-    queryString.checkServerIdentity = false;
-    queryString.sslValidate = false;
-  } else {
-    Object.assign(queryString, {
-      checkServerIdentity: queryString.tlsAllowInvalidHostnames ? false : true,
-      sslValidate: queryString.tlsAllowInvalidCertificates ? false : true
-    });
-  }
-
-  if (queryString.tlsCAFile) {
-    queryString.ssl = true;
-    queryString.sslCA = queryString.tlsCAFile;
-  }
-
-  if (queryString.tlsCertificateKeyFile) {
-    queryString.ssl = true;
-    if (queryString.tlsCertificateFile) {
-      queryString.sslCert = queryString.tlsCertificateFile;
-      queryString.sslKey = queryString.tlsCertificateKeyFile;
-    } else {
-      queryString.sslKey = queryString.tlsCertificateKeyFile;
-      queryString.sslCert = queryString.tlsCertificateKeyFile;
-    }
-  }
-
-  if (queryString.tlsCertificateKeyFilePassword) {
-    queryString.ssl = true;
-    queryString.sslPass = queryString.tlsCertificateKeyFilePassword;
-  }
-
-  return queryString;
-}
-
 /**
  * Checks a query string for invalid tls options according to the URI options spec.
  *
@@ -32133,7 +28686,7 @@ function assertTlsOptionsAreEqual(optionName, queryString, queryStringKeys) {
       const firstValue = queryString[optionName][0];
       queryString[optionName].forEach(tlsValue => {
         if (tlsValue !== firstValue) {
-          throw new MongoParseError(`All values of ${optionName} must be the same.`);
+          throw new MongoParseError('All values of ${optionName} must be the same.');
         }
       });
     }
@@ -32197,10 +28750,6 @@ function parseConnectionString(uri, options, callback) {
     if (parsedOptions.auth.username) auth.username = parsedOptions.auth.username;
     if (parsedOptions.auth.user) auth.username = parsedOptions.auth.user;
     if (parsedOptions.auth.password) auth.password = parsedOptions.auth.password;
-  } else {
-    if (parsedOptions.username) auth.username = parsedOptions.username;
-    if (parsedOptions.user) auth.username = parsedOptions.user;
-    if (parsedOptions.password) auth.password = parsedOptions.password;
   }
 
   if (cap[4].split('?')[0].indexOf('@') !== -1) {
@@ -32212,22 +28761,14 @@ function parseConnectionString(uri, options, callback) {
     return callback(new MongoParseError('Unescaped at-sign in authority section'));
   }
 
-  if (authorityParts[0] == null || authorityParts[0] === '') {
-    return callback(new MongoParseError('No username provided in authority section'));
-  }
-
   if (authorityParts.length > 1) {
     const authParts = authorityParts.shift().split(':');
     if (authParts.length > 2) {
       return callback(new MongoParseError('Unescaped colon in authority section'));
     }
 
-    if (authParts[0] === '') {
-      return callback(new MongoParseError('Invalid empty username provided'));
-    }
-
-    if (!auth.username) auth.username = qs.unescape(authParts[0]);
-    if (!auth.password) auth.password = authParts[1] ? qs.unescape(authParts[1]) : null;
+    auth.username = qs.unescape(authParts[0]);
+    auth.password = authParts[1] ? qs.unescape(authParts[1]) : null;
   }
 
   let hostParsingError = null;
@@ -32292,12 +28833,7 @@ function parseConnectionString(uri, options, callback) {
 
   if (result.auth && result.auth.db) {
     result.defaultDatabase = result.auth.db;
-  } else {
-    result.defaultDatabase = 'test';
   }
-
-  // support modern `tls` variants to SSL options
-  result.options = translateTLSOptions(result.options);
 
   try {
     applyAuthExpectations(result);
@@ -32322,7 +28858,7 @@ module.exports = parseConnectionString;
 
 "use strict";
 
-const os = __webpack_require__(/*! os */ "os");
+
 const crypto = __webpack_require__(/*! crypto */ "crypto");
 const requireOptional = __webpack_require__(/*! require_optional */ "./node_modules/require_optional/index.js");
 
@@ -32454,131 +28990,32 @@ function isPromiseLike(maybePromise) {
  * @param {function} callback The callback called after every item has been iterated
  */
 function eachAsync(arr, eachFn, callback) {
-  arr = arr || [];
-
-  let idx = 0;
-  let awaiting = 0;
-  for (idx = 0; idx < arr.length; ++idx) {
-    awaiting++;
-    eachFn(arr[idx], eachCallback);
-  }
-
-  if (awaiting === 0) {
-    callback();
+  if (arr.length === 0) {
+    callback(null);
     return;
   }
 
+  const length = arr.length;
+  let completed = 0;
   function eachCallback(err) {
-    awaiting--;
     if (err) {
-      callback(err);
+      callback(err, null);
       return;
     }
 
-    if (idx === arr.length && awaiting <= 0) {
-      callback();
+    if (++completed === length) {
+      callback(null);
     }
+  }
+
+  for (let idx = 0; idx < length; ++idx) {
+    eachFn(arr[idx], eachCallback);
   }
 }
 
 function isUnifiedTopology(topology) {
   return topology.description != null;
 }
-
-function arrayStrictEqual(arr, arr2) {
-  if (!Array.isArray(arr) || !Array.isArray(arr2)) {
-    return false;
-  }
-
-  return arr.length === arr2.length && arr.every((elt, idx) => elt === arr2[idx]);
-}
-
-function tagsStrictEqual(tags, tags2) {
-  const tagsKeys = Object.keys(tags);
-  const tags2Keys = Object.keys(tags2);
-  return tagsKeys.length === tags2Keys.length && tagsKeys.every(key => tags2[key] === tags[key]);
-}
-
-function errorStrictEqual(lhs, rhs) {
-  if (lhs === rhs) {
-    return true;
-  }
-
-  if ((lhs == null && rhs != null) || (lhs != null && rhs == null)) {
-    return false;
-  }
-
-  if (lhs.constructor.name !== rhs.constructor.name) {
-    return false;
-  }
-
-  if (lhs.message !== rhs.message) {
-    return false;
-  }
-
-  return true;
-}
-
-function makeStateMachine(stateTable) {
-  return function stateTransition(target, newState) {
-    const legalStates = stateTable[target.s.state];
-    if (legalStates && legalStates.indexOf(newState) < 0) {
-      throw new TypeError(
-        `illegal state transition from [${target.s.state}] => [${newState}], allowed: [${legalStates}]`
-      );
-    }
-
-    target.emit('stateChanged', target.s.state, newState);
-    target.s.state = newState;
-  };
-}
-
-function makeClientMetadata(options) {
-  options = options || {};
-
-  const metadata = {
-    driver: {
-      name: 'nodejs',
-      version: __webpack_require__(/*! ../../package.json */ "./node_modules/mongodb/package.json").version
-    },
-    os: {
-      type: os.type(),
-      name: process.platform,
-      architecture: process.arch,
-      version: os.release()
-    },
-    platform: `'Node.js ${process.version}, ${os.endianness} (${
-      options.useUnifiedTopology ? 'unified' : 'legacy'
-    })`
-  };
-
-  // support optionally provided wrapping driver info
-  if (options.driverInfo) {
-    if (options.driverInfo.name) {
-      metadata.driver.name = `${metadata.driver.name}|${options.driverInfo.name}`;
-    }
-
-    if (options.driverInfo.version) {
-      metadata.version = `${metadata.driver.version}|${options.driverInfo.version}`;
-    }
-
-    if (options.driverInfo.platform) {
-      metadata.platform = `${metadata.platform}|${options.driverInfo.platform}`;
-    }
-  }
-
-  if (options.appname) {
-    // MongoDB requires the appname not exceed a byte length of 128
-    const buffer = Buffer.from(options.appname);
-    metadata.application = {
-      name: buffer.length > 128 ? buffer.slice(0, 128).toString('utf8') : options.appname
-    };
-  }
-
-  return metadata;
-}
-
-const noop = () => {};
 
 module.exports = {
   uuidV4,
@@ -32590,13 +29027,7 @@ module.exports = {
   maxWireVersion,
   isPromiseLike,
   eachAsync,
-  isUnifiedTopology,
-  arrayStrictEqual,
-  tagsStrictEqual,
-  errorStrictEqual,
-  makeStateMachine,
-  makeClientMetadata,
-  noop
+  isUnifiedTopology
 };
 
 
@@ -32620,12 +29051,9 @@ const isSharded = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/li
 const databaseNamespace = __webpack_require__(/*! ./shared */ "./node_modules/mongodb/lib/core/wireprotocol/shared.js").databaseNamespace;
 const isTransactionCommand = __webpack_require__(/*! ../transactions */ "./node_modules/mongodb/lib/core/transactions.js").isTransactionCommand;
 const applySession = __webpack_require__(/*! ../sessions */ "./node_modules/mongodb/lib/core/sessions.js").applySession;
-const MongoNetworkError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoNetworkError;
-const maxWireVersion = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/core/utils.js").maxWireVersion;
 
 function isClientEncryptionEnabled(server) {
-  const wireVersion = maxWireVersion(server);
-  return wireVersion && server.autoEncrypter;
+  return server.autoEncrypter;
 }
 
 function command(server, ns, cmd, options, callback) {
@@ -32638,12 +29066,6 @@ function command(server, ns, cmd, options, callback) {
 
   if (!isClientEncryptionEnabled(server)) {
     _command(server, ns, cmd, options, callback);
-    return;
-  }
-
-  const wireVersion = maxWireVersion(server);
-  if (typeof wireVersion !== 'number' || wireVersion < 8) {
-    callback(new MongoError('Auto-encryption requires a minimum MongoDB version of 4.2'));
     return;
   }
 
@@ -32711,18 +29133,6 @@ function _command(server, ns, cmd, options, callback) {
   const inTransaction = session && (session.inTransaction() || isTransactionCommand(finalCmd));
   const commandResponseHandler = inTransaction
     ? function(err) {
-        // We need to add a TransientTransactionError errorLabel, as stated in the transaction spec.
-        if (
-          err &&
-          err instanceof MongoNetworkError &&
-          !err.hasErrorLabel('TransientTransactionError')
-        ) {
-          if (err.errorLabels == null) {
-            err.errorLabels = [];
-          }
-          err.errorLabels.push('TransientTransactionError');
-        }
-
         if (
           !cmd.commitTransaction &&
           err &&
@@ -32765,6 +29175,7 @@ function supportsOpMsg(topologyOrServer) {
 }
 
 function _cryptCommand(server, ns, cmd, options, callback) {
+  const shouldBypassAutoEncryption = !!server.s.options.bypassAutoEncryption;
   const autoEncrypter = server.autoEncrypter;
   function commandResponseHandler(err, response) {
     if (err || response == null) {
@@ -32772,7 +29183,7 @@ function _cryptCommand(server, ns, cmd, options, callback) {
       return;
     }
 
-    autoEncrypter.decrypt(response.result, options, (err, decrypted) => {
+    autoEncrypter.decrypt(response.result, (err, decrypted) => {
       if (err) {
         callback(err, null);
         return;
@@ -32784,7 +29195,12 @@ function _cryptCommand(server, ns, cmd, options, callback) {
     });
   }
 
-  autoEncrypter.encrypt(ns, cmd, options, (err, encrypted) => {
+  if (shouldBypassAutoEncryption) {
+    _command(server, ns, cmd, options, commandResponseHandler);
+    return;
+  }
+
+  autoEncrypter.encrypt(ns, cmd, (err, encrypted) => {
     if (err) {
       callback(err, null);
       return;
@@ -32809,15 +29225,15 @@ module.exports = command;
 "use strict";
 
 
-const Snappy = __webpack_require__(/*! ../connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").retrieveSnappy();
-const zlib = __webpack_require__(/*! zlib */ "zlib");
+var Snappy = __webpack_require__(/*! ../connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").retrieveSnappy(),
+  zlib = __webpack_require__(/*! zlib */ "zlib");
 
-const compressorIDs = {
+var compressorIDs = {
   snappy: 1,
   zlib: 2
 };
 
-const uncompressibleCommands = new Set([
+var uncompressibleCommands = [
   'ismaster',
   'saslStart',
   'saslContinue',
@@ -32828,10 +29244,10 @@ const uncompressibleCommands = new Set([
   'copydbSaslStart',
   'copydbgetnonce',
   'copydb'
-]);
+];
 
 // Facilitate compressing a message using an agreed compressor
-function compress(self, dataToBeCompressed, callback) {
+var compress = function(self, dataToBeCompressed, callback) {
   switch (self.options.agreedCompressor) {
     case 'snappy':
       Snappy.compress(dataToBeCompressed, callback);
@@ -32851,10 +29267,10 @@ function compress(self, dataToBeCompressed, callback) {
           '".'
       );
   }
-}
+};
 
 // Decompress a message using the given compressor
-function decompress(compressorID, compressedData, callback) {
+var decompress = function(compressorID, compressedData, callback) {
   if (compressorID < 0 || compressorID > compressorIDs.length) {
     throw new Error(
       'Server sent message compressed using an unsupported compressor. (Received compressor ID ' +
@@ -32872,13 +29288,13 @@ function decompress(compressorID, compressedData, callback) {
     default:
       callback(null, compressedData);
   }
-}
+};
 
 module.exports = {
-  compressorIDs,
-  uncompressibleCommands,
-  compress,
-  decompress
+  compressorIDs: compressorIDs,
+  uncompressibleCommands: uncompressibleCommands,
+  compress: compress,
+  decompress: decompress
 };
 
 
@@ -33378,7 +29794,7 @@ module.exports = query;
 
 const ReadPreference = __webpack_require__(/*! ../topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
 const MongoError = __webpack_require__(/*! ../error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
-const ServerType = __webpack_require__(/*! ../sdam/common */ "./node_modules/mongodb/lib/core/sdam/common.js").ServerType;
+const ServerType = __webpack_require__(/*! ../sdam/server_description */ "./node_modules/mongodb/lib/core/sdam/server_description.js").ServerType;
 const TopologyDescription = __webpack_require__(/*! ../sdam/topology_description */ "./node_modules/mongodb/lib/core/sdam/topology_description.js").TopologyDescription;
 
 const MESSAGE_HEADER_SIZE = 16;
@@ -33574,12 +29990,16 @@ const MongoError = __webpack_require__(/*! ./core */ "./node_modules/mongodb/lib
 const CoreCursor = __webpack_require__(/*! ./core/cursor */ "./node_modules/mongodb/lib/core/cursor.js").CoreCursor;
 const CursorState = __webpack_require__(/*! ./core/cursor */ "./node_modules/mongodb/lib/core/cursor.js").CursorState;
 const Map = __webpack_require__(/*! ./core */ "./node_modules/mongodb/lib/core/index.js").BSON.Map;
-const maybePromise = __webpack_require__(/*! ./utils */ "./node_modules/mongodb/lib/utils.js").maybePromise;
-const executeOperation = __webpack_require__(/*! ./operations/execute_operation */ "./node_modules/mongodb/lib/operations/execute_operation.js");
-const formattedOrderClause = __webpack_require__(/*! ./utils */ "./node_modules/mongodb/lib/utils.js").formattedOrderClause;
 
 const each = __webpack_require__(/*! ./operations/cursor_ops */ "./node_modules/mongodb/lib/operations/cursor_ops.js").each;
+
 const CountOperation = __webpack_require__(/*! ./operations/count */ "./node_modules/mongodb/lib/operations/count.js");
+const ExplainOperation = __webpack_require__(/*! ./operations/explain */ "./node_modules/mongodb/lib/operations/explain.js");
+const HasNextOperation = __webpack_require__(/*! ./operations/has_next */ "./node_modules/mongodb/lib/operations/has_next.js");
+const NextOperation = __webpack_require__(/*! ./operations/next */ "./node_modules/mongodb/lib/operations/next.js");
+const ToArrayOperation = __webpack_require__(/*! ./operations/to_array */ "./node_modules/mongodb/lib/operations/to_array.js");
+
+const executeOperation = __webpack_require__(/*! ./operations/execute_operation */ "./node_modules/mongodb/lib/operations/execute_operation.js");
 
 /**
  * @fileOverview The **Cursor** class is an internal class that embodies a cursor on MongoDB
@@ -33689,6 +30109,8 @@ class Cursor extends CoreCursor {
       state: CursorState.INIT,
       // Promise library
       promiseLibrary,
+      // Current doc
+      currentDoc: null,
       // explicitlyIgnoreSession
       explicitlyIgnoreSession: !!options.explicitlyIgnoreSession
     };
@@ -33758,33 +30180,9 @@ class Cursor extends CoreCursor {
    * @return {Promise} returns Promise if no callback passed
    */
   hasNext(callback) {
-    if (this.s.state === CursorState.CLOSED || (this.isDead && this.isDead())) {
-      throw MongoError.create({ message: 'Cursor is closed', driver: true });
-    }
+    const hasNextOperation = new HasNextOperation(this);
 
-    return maybePromise(this, callback, cb => {
-      const cursor = this;
-      if (cursor.isNotified()) {
-        return cb(null, false);
-      }
-
-      cursor._next((err, doc) => {
-        if (err) return cb(err);
-        if (doc == null || cursor.s.state === Cursor.CLOSED || cursor.isDead()) {
-          return cb(null, false);
-        }
-
-        cursor.s.state = CursorState.OPEN;
-
-        // NODE-2482: merge this into the core cursor implementation
-        cursor.cursorState.cursorIndex--;
-        if (cursor.cursorState.limit > 0) {
-          cursor.cursorState.currentLimit--;
-        }
-
-        cb(null, true);
-      });
-    });
+    return executeOperation(this.topology, hasNextOperation, callback);
   }
 
   /**
@@ -33795,27 +30193,9 @@ class Cursor extends CoreCursor {
    * @return {Promise} returns Promise if no callback passed
    */
   next(callback) {
-    return maybePromise(this, callback, cb => {
-      const cursor = this;
-      if (cursor.s.state === CursorState.CLOSED || (cursor.isDead && cursor.isDead())) {
-        cb(MongoError.create({ message: 'Cursor is closed', driver: true }));
-        return;
-      }
+    const nextOperation = new NextOperation(this);
 
-      if (cursor.s.state === CursorState.INIT && cursor.cmd.sort) {
-        try {
-          cursor.cmd.sort = formattedOrderClause(cursor.cmd.sort);
-        } catch (err) {
-          return cb(err);
-        }
-      }
-
-      cursor._next((err, doc) => {
-        if (err) return cb(err);
-        cursor.s.state = CursorState.OPEN;
-        cb(null, doc);
-      });
-    });
+    return executeOperation(this.topology, nextOperation, callback);
   }
 
   /**
@@ -34144,7 +30524,7 @@ class Cursor extends CoreCursor {
   /**
    * Set the batch size for the cursor.
    * @method
-   * @param {number} value The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/find/|find command documentation}.
+   * @param {number} value The batchSize for the cursor.
    * @throws {MongoError}
    * @return {Cursor}
    */
@@ -34384,49 +30764,10 @@ class Cursor extends CoreCursor {
         driver: true
       });
     }
-    return maybePromise(this, callback, cb => {
-      const cursor = this;
-      const items = [];
 
-      // Reset cursor
-      cursor.rewind();
-      cursor.s.state = CursorState.INIT;
+    const toArrayOperation = new ToArrayOperation(this);
 
-      // Fetch all the documents
-      const fetchDocs = () => {
-        cursor._next((err, doc) => {
-          if (err) {
-            return cursor._endSession
-              ? cursor._endSession(() => handleCallback(cb, err))
-              : handleCallback(cb, err);
-          }
-
-          if (doc == null) {
-            return cursor.close({ skipKillCursors: true }, () => handleCallback(cb, null, items));
-          }
-
-          // Add doc to items
-          items.push(doc);
-
-          // Get all buffered objects
-          if (cursor.bufferedCount() > 0) {
-            let docs = cursor.readBufferedDocuments(cursor.bufferedCount());
-
-            // Transform the doc if transform method added
-            if (cursor.s.transforms && typeof cursor.s.transforms.doc === 'function') {
-              docs = docs.map(cursor.s.transforms.doc);
-            }
-
-            Array.prototype.push.apply(items, docs);
-          }
-
-          // Attempt a fetch
-          fetchDocs();
-        });
-      };
-
-      fetchDocs();
-    });
+    return executeOperation(this.topology, toArrayOperation, callback);
   }
 
   /**
@@ -34611,9 +30952,10 @@ class Cursor extends CoreCursor {
     if (this.cmd.readConcern) {
       delete this.cmd['readConcern'];
     }
-    return maybePromise(this, callback, cb => {
-      CoreCursor.prototype._next.apply(this, [cb]);
-    });
+
+    const explainOperation = new ExplainOperation(this);
+
+    return executeOperation(this.topology, explainOperation, callback);
   }
 
   /**
@@ -35041,13 +31383,11 @@ Db.prototype.command = function(command, options, callback) {
  * @param {object} [pipeline=[]] Array containing all the aggregation framework commands for the execution.
  * @param {object} [options] Optional settings.
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
- * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {object} [options.cursor] Return the query as cursor, on 2.6 > it returns as a real cursor on pre 2.6 it returns as an emulated cursor.
- * @param {number} [options.cursor.batchSize=1000] Deprecated. Use `options.batchSize`
+ * @param {number} [options.cursor.batchSize] The batchSize for the cursor
  * @param {boolean} [options.explain=false] Explain returns the aggregation execution plan (requires mongodb 2.6 >).
  * @param {boolean} [options.allowDiskUse=false] allowDiskUse lets the server know if it can use disk to store temporary results for the aggregation (requires mongodb 2.6 >).
  * @param {number} [options.maxTimeMS] maxTimeMS specifies a cumulative time limit in milliseconds for processing operations on the cursor. MongoDB interrupts the operation at the earliest following interrupt point.
- * @param {number} [options.maxAwaitTimeMS] The maximum amount of time for the server to wait on new documents to satisfy a tailable cursor query.
  * @param {boolean} [options.bypassDocumentValidation=false] Allow driver to bypass schema validation in MongoDB 3.2 or higher.
  * @param {boolean} [options.raw=false] Return document results as raw BSON buffers.
  * @param {boolean} [options.promoteLongs=true] Promotes Long values to number if they fit inside the 53 bits resolution.
@@ -35305,7 +31645,7 @@ Db.prototype.stats = function(options, callback) {
  * @param {object} [filter={}] Query to filter collections by
  * @param {object} [options] Optional settings.
  * @param {boolean} [options.nameOnly=false] Since 4.0: If true, will only return the collection name in the response, and will omit additional info
- * @param {number} [options.batchSize=1000] The batchSize for the returned command cursor or if pre 2.8 the systems batch collection
+ * @param {number} [options.batchSize] The batchSize for the returned command cursor or if pre 2.8 the systems batch collection
  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST).
  * @param {ClientSession} [options.session] optional session to use for this operation
  * @return {CommandCursor}
@@ -35672,7 +32012,7 @@ Db.prototype.unref = function() {
  * @param {string} [options.fullDocument='default'] Allowed values: ‘default’, ‘updateLookup’. When set to ‘updateLookup’, the change stream will include both a delta describing the changes to the document, as well as a copy of the entire document that was changed from some time after the change occurred.
  * @param {object} [options.resumeAfter] Specifies the logical starting point for the new change stream. This should be the _id field from a previously returned change stream document.
  * @param {number} [options.maxAwaitTimeMS] The maximum amount of time for the server to wait on new documents to satisfy a change stream query
- * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
+ * @param {number} [options.batchSize] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {object} [options.collation] Specify collation settings for operation. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {ReadPreference} [options.readPreference] The read preference. Defaults to the read preference of the database. See {@link https://docs.mongodb.com/manual/reference/read-preference|read preference documentation}.
  * @param {Timestamp} [options.startAtOperationTime] receive change events that occur after the specified timestamp
@@ -35895,7 +32235,6 @@ module.exports = GridFSBucketReadStream;
  * Do not instantiate this class directly. Use `openDownloadStream()` instead.
  *
  * @class
- * @extends external:Readable
  * @param {Collection} chunks Handle for chunks collection
  * @param {Collection} files Handle for files collection
  * @param {Object} readPreference The read preference to use
@@ -35907,7 +32246,9 @@ module.exports = GridFSBucketReadStream;
  * @param {Number} [options.end] Optional 0-based offset in bytes to stop streaming before
  * @fires GridFSBucketReadStream#error
  * @fires GridFSBucketReadStream#file
+ * @return {GridFSBucketReadStream} a GridFSBucketReadStream instance.
  */
+
 function GridFSBucketReadStream(chunks, files, readPreference, filter, options) {
   this.s = {
     bytesRead: 0,
@@ -35966,8 +32307,6 @@ util.inherits(GridFSBucketReadStream, stream.Readable);
 
 /**
  * Reads from the cursor and pushes to the stream.
- * Private Impl, do not call directly
- * @ignore
  * @method
  */
 
@@ -35988,7 +32327,7 @@ GridFSBucketReadStream.prototype._read = function() {
  * (e.g. if you've already called `on('data')`)
  * @method
  * @param {Number} start Offset in bytes to start reading at
- * @return {GridFSBucketReadStream} Reference to Self
+ * @return {GridFSBucketReadStream}
  */
 
 GridFSBucketReadStream.prototype.start = function(start) {
@@ -36003,7 +32342,7 @@ GridFSBucketReadStream.prototype.start = function(start) {
  * (e.g. if you've already called `on('data')`)
  * @method
  * @param {Number} end Offset in bytes to stop reading at
- * @return {GridFSBucketReadStream} Reference to self
+ * @return {GridFSBucketReadStream}
  */
 
 GridFSBucketReadStream.prototype.end = function(end) {
@@ -36070,19 +32409,12 @@ function doRead(_this) {
     }
     if (!doc) {
       _this.push(null);
-
-      process.nextTick(() => {
-        _this.s.cursor.close(function(error) {
-          if (error) {
-            __handleError(_this, error);
-            return;
-          }
-
-          _this.emit('close');
-        });
+      return _this.s.cursor.close(function(error) {
+        if (error) {
+          return __handleError(_this, error);
+        }
+        _this.emit('close');
       });
-
-      return;
     }
 
     var bytesRemaining = _this.s.file.length - _this.s.bytesRead;
@@ -36336,7 +32668,6 @@ module.exports = GridFSBucket;
 /**
  * Constructor for a streaming GridFS interface
  * @class
- * @extends external:EventEmitter
  * @param {Db} db A db handle
  * @param {object} [options] Optional settings.
  * @param {string} [options.bucketName="fs"] The 'files' and 'chunks' collections will be prefixed with the bucket name followed by a dot.
@@ -36344,6 +32675,7 @@ module.exports = GridFSBucket;
  * @param {object} [options.writeConcern] Optional write concern to be passed to write operations, for instance `{ w: 1 }`
  * @param {object} [options.readPreference] Optional read preference to be passed to read operations
  * @fires GridFSBucketWriteStream#index
+ * @return {GridFSBucket}
  */
 
 function GridFSBucket(db, options) {
@@ -36516,7 +32848,7 @@ function _delete(_this, id, callback) {
  * @method
  * @param {Object} filter
  * @param {Object} [options] Optional settings for cursor
- * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/find|find command documentation}.
+ * @param {number} [options.batchSize] Optional batch size for cursor
  * @param {number} [options.limit] Optional limit for cursor
  * @param {number} [options.maxTimeMS] Optional maxTimeMS for cursor
  * @param {boolean} [options.noCursorTimeout] Optionally set cursor's `noCursorTimeout` flag
@@ -36672,8 +33004,7 @@ function _drop(_this, callback) {
 /**
  * Callback format for all GridFSBucket methods that can accept a callback.
  * @callback GridFSBucket~errorCallback
- * @param {MongoError|undefined} error If present, an error instance representing any errors that occurred
- * @param {*} result If present, a returned result for the method
+ * @param {MongoError} error An error instance representing any errors that occurred
  */
 
 
@@ -36705,7 +33036,6 @@ module.exports = GridFSBucketWriteStream;
  * Do not instantiate this class directly. Use `openUploadStream()` instead.
  *
  * @class
- * @extends external:Writable
  * @param {GridFSBucket} bucket Handle for this stream's corresponding bucket
  * @param {string} filename The value of the 'filename' key in the files doc
  * @param {object} [options] Optional settings.
@@ -36717,6 +33047,7 @@ module.exports = GridFSBucketWriteStream;
  * @param {boolean} [options.disableMD5=false] If true, disables adding an md5 field to file data
  * @fires GridFSBucketWriteStream#error
  * @fires GridFSBucketWriteStream#finish
+ * @return {GridFSBucketWriteStream} a GridFSBucketWriteStream instance.
  */
 
 function GridFSBucketWriteStream(bucket, filename, options) {
@@ -36778,7 +33109,7 @@ util.inherits(GridFSBucketWriteStream, stream.Writable);
  * @method
  * @param {Buffer} chunk Buffer to write
  * @param {String} encoding Optional encoding for the buffer
- * @param {GridFSBucket~errorCallback} callback Function to call when the chunk was added to the buffer, or if the entire chunk was persisted to MongoDB if this chunk caused a flush.
+ * @param {Function} callback Function to call when the chunk was added to the buffer, or if the entire chunk was persisted to MongoDB if this chunk caused a flush.
  * @return {Boolean} False if this write required flushing a chunk to MongoDB. True otherwise.
  */
 
@@ -36827,7 +33158,7 @@ GridFSBucketWriteStream.prototype.abort = function(callback) {
  * @method
  * @param {Buffer} chunk Buffer to write
  * @param {String} encoding Optional encoding for the buffer
- * @param {GridFSBucket~errorCallback} callback Function to call when all files and chunks have been persisted to MongoDB
+ * @param {Function} callback Function to call when all files and chunks have been persisted to MongoDB
  */
 
 GridFSBucketWriteStream.prototype.end = function(chunk, encoding, callback) {
@@ -37111,7 +33442,7 @@ function doWrite(_this, chunk, encoding, callback) {
       if (_this.md5) {
         _this.md5.update(_this.bufToStore);
       }
-      var doc = createChunkDoc(_this.id, _this.n, Buffer.from(_this.bufToStore));
+      var doc = createChunkDoc(_this.id, _this.n, _this.bufToStore);
       ++_this.state.outstandingRequests;
       ++outstandingRequests;
 
@@ -37711,21 +34042,14 @@ var open = function(self, options, callback) {
       var chunkIndexOptions = shallowClone(writeConcern);
       chunkIndexOptions.unique = true;
       // Ensure index on chunk collection
-      chunkCollection.ensureIndex(
-        [
-          ['files_id', 1],
-          ['n', 1]
-        ],
-        chunkIndexOptions,
-        function() {
-          // Open the connection
-          _open(self, writeConcern, function(err, r) {
-            if (err) return callback(err);
-            self.isOpen = true;
-            callback(err, r);
-          });
-        }
-      );
+      chunkCollection.ensureIndex([['files_id', 1], ['n', 1]], chunkIndexOptions, function() {
+        // Open the connection
+        _open(self, writeConcern, function(err, r) {
+          if (err) return callback(err);
+          self.isOpen = true;
+          callback(err, r);
+        });
+      });
     });
   } else {
     // Open the gridstore
@@ -39422,16 +35746,17 @@ module.exports = GridStore;
 const ChangeStream = __webpack_require__(/*! ./change_stream */ "./node_modules/mongodb/lib/change_stream.js");
 const Db = __webpack_require__(/*! ./db */ "./node_modules/mongodb/lib/db.js");
 const EventEmitter = __webpack_require__(/*! events */ "events").EventEmitter;
+const executeOperation = __webpack_require__(/*! ./operations/execute_operation */ "./node_modules/mongodb/lib/operations/execute_operation.js");
 const inherits = __webpack_require__(/*! util */ "util").inherits;
 const MongoError = __webpack_require__(/*! ./core */ "./node_modules/mongodb/lib/core/index.js").MongoError;
 const deprecate = __webpack_require__(/*! util */ "util").deprecate;
 const WriteConcern = __webpack_require__(/*! ./write_concern */ "./node_modules/mongodb/lib/write_concern.js");
 const MongoDBNamespace = __webpack_require__(/*! ./utils */ "./node_modules/mongodb/lib/utils.js").MongoDBNamespace;
 const ReadPreference = __webpack_require__(/*! ./core/topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
-const maybePromise = __webpack_require__(/*! ./utils */ "./node_modules/mongodb/lib/utils.js").maybePromise;
-const NativeTopology = __webpack_require__(/*! ./topologies/native_topology */ "./node_modules/mongodb/lib/topologies/native_topology.js");
-const connect = __webpack_require__(/*! ./operations/connect */ "./node_modules/mongodb/lib/operations/connect.js").connect;
-const validOptions = __webpack_require__(/*! ./operations/connect */ "./node_modules/mongodb/lib/operations/connect.js").validOptions;
+
+// Operations
+const ConnectOperation = __webpack_require__(/*! ./operations/connect */ "./node_modules/mongodb/lib/operations/connect.js");
+const CloseOperation = __webpack_require__(/*! ./operations/close */ "./node_modules/mongodb/lib/operations/close.js");
 
 /**
  * @fileOverview The **MongoClient** class is a class that allows for making Connections to MongoDB.
@@ -39473,21 +35798,26 @@ const validOptions = __webpack_require__(/*! ./operations/connect */ "./node_mod
  */
 
 /**
- * Configuration options for drivers wrapping the node driver.
+ * Configuration options for a automatic client encryption.
  *
- * @typedef {Object} DriverInfoOptions
- * @property {string} [name] The name of the driver
- * @property {string} [version] The version of the driver
- * @property {string} [platform] Optional platform information
- */
-
-/**
- * Configuration options for drivers wrapping the node driver.
+ * **NOTE**: Support for client side encryption is in beta. Backwards-breaking changes may be made before the final release.
  *
- * @typedef {Object} DriverInfoOptions
- * @property {string} [name] The name of the driver
- * @property {string} [version] The version of the driver
- * @property {string} [platform] Optional platform information
+ * @typedef {Object} AutoEncryptionOptions
+ * @property {MongoClient} [keyVaultClient] A `MongoClient` used to fetch keys from a key vault
+ * @property {string} [keyVaultNamespace] The namespace where keys are stored in the key vault
+ * @property {object} [kmsProviders] Provider details for the desired Key Management Service to use for encryption
+ * @property {object} [kmsProviders.aws] Optional settings for the AWS KMS provider
+ * @property {string} [kmsProviders.aws.accessKeyId] The access key used for the AWS KMS provider
+ * @property {string} [kmsProviders.aws.secretAccessKey] The secret access key used for the AWS KMS provider
+ * @property {object} [kmsProviders.local] Optional settings for the local KMS provider
+ * @property {string} [kmsProviders.local.key] The master key used to encrypt/decrypt data keys
+ * @property {object} [schemaMap] A map of namespaces to a local JSON schema for encryption
+ * @property {boolean} [bypassAutoEncryption] Allows the user to bypass auto encryption, maintaining implicit decryption
+ * @property {object} [extraOptions] Extra options related to the mongocryptd process
+ * @property {string} [extraOptions.mongocryptURI] A local process the driver communicates with to determine how to encrypt values in a command. Defaults to "mongodb://%2Fvar%2Fmongocryptd.sock" if domain sockets are available or "mongodb://localhost:27020" otherwise
+ * @property {boolean} [extraOptions.mongocryptdBypassSpawn=false] If true, autoEncryption will not attempt to spawn a mongocryptd before connecting
+ * @property {string} [extraOptions.mongocryptdSpawnPath] The path to the mongocryptd executable on the system
+ * @property {string[]} [extraOptions.mongocryptdSpawnArgs] Command line arguments to use when auto-spawning a mongocryptd
  */
 
 /**
@@ -39496,29 +35826,21 @@ const validOptions = __webpack_require__(/*! ./operations/connect */ "./node_mod
  * @param {string} url The connection URI string
  * @param {object} [options] Optional settings
  * @param {number} [options.poolSize=5] The maximum size of the individual server pool
- * @param {boolean} [options.ssl=false] Enable SSL connection. *deprecated* use `tls` variants
+ * @param {boolean} [options.ssl=false] Enable SSL connection.
  * @param {boolean} [options.sslValidate=false] Validate mongod server certificate against Certificate Authority
- * @param {buffer} [options.sslCA=undefined] SSL Certificate store binary buffer *deprecated* use `tls` variants
- * @param {buffer} [options.sslCert=undefined] SSL Certificate binary buffer *deprecated* use `tls` variants
- * @param {buffer} [options.sslKey=undefined] SSL Key file binary buffer *deprecated* use `tls` variants
- * @param {string} [options.sslPass=undefined] SSL Certificate pass phrase *deprecated* use `tls` variants
- * @param {buffer} [options.sslCRL=undefined] SSL Certificate revocation list binary buffer *deprecated* use `tls` variants
- * @param {boolean|function} [options.checkServerIdentity=true] Ensure we check server identify during SSL, set to false to disable checking. Only works for Node 0.12.x or higher. You can pass in a boolean or your own checkServerIdentity override function. *deprecated* use `tls` variants
- * @param {boolean} [options.tls=false] Enable TLS connections
- * @param {boolean} [options.tlsInsecure=false] Relax TLS constraints, disabling validation
- * @param {string} [options.tlsCAFile] A path to file with either a single or bundle of certificate authorities to be considered trusted when making a TLS connection
- * @param {string} [options.tlsCertificateKeyFile] A path to the client certificate file or the client private key file; in the case that they both are needed, the files should be concatenated
- * @param {string} [options.tlsCertificateKeyFilePassword] The password to decrypt the client private key to be used for TLS connections
- * @param {boolean} [options.tlsAllowInvalidCertificates] Specifies whether or not the driver should error when the server’s TLS certificate is invalid
- * @param {boolean} [options.tlsAllowInvalidHostnames] Specifies whether or not the driver should error when there is a mismatch between the server’s hostname and the hostname specified by the TLS certificate
+ * @param {buffer} [options.sslCA=undefined] SSL Certificate store binary buffer
+ * @param {buffer} [options.sslCert=undefined] SSL Certificate binary buffer
+ * @param {buffer} [options.sslKey=undefined] SSL Key file binary buffer
+ * @param {string} [options.sslPass=undefined] SSL Certificate pass phrase
+ * @param {buffer} [options.sslCRL=undefined] SSL Certificate revocation list binary buffer
  * @param {boolean} [options.autoReconnect=true] Enable autoReconnect for single server instances
  * @param {boolean} [options.noDelay=true] TCP Connection no delay
  * @param {boolean} [options.keepAlive=true] TCP Connection keep alive enabled
  * @param {number} [options.keepAliveInitialDelay=30000] The number of milliseconds to wait before initiating keepAlive on the TCP socket
- * @param {number} [options.connectTimeoutMS=10000] How long to wait for a connection to be established before timing out
- * @param {number} [options.socketTimeoutMS=360000] How long a send or receive on a socket can take before timing out
+ * @param {number} [options.connectTimeoutMS=30000] TCP Connection timeout setting
  * @param {number} [options.family] Version of IP stack. Can be 4, 6 or null (default).
  * If null, will attempt to connect with IPv6, and will fall back to IPv4 on failure
+ * @param {number} [options.socketTimeoutMS=360000] TCP Socket timeout setting
  * @param {number} [options.reconnectTries=30] Server attempt to reconnect #times
  * @param {number} [options.reconnectInterval=1000] Server will wait # milliseconds between retries
  * @param {boolean} [options.ha=true] Control if high availability monitoring runs for Replicaset or Mongos proxies
@@ -39548,6 +35870,7 @@ const validOptions = __webpack_require__(/*! ./operations/connect */ "./node_mod
  * @param {boolean} [options.promoteBuffers=false] Promotes Binary BSON values to native Node Buffers
  * @param {boolean} [options.promoteLongs=true] Promotes long values to number if they fit inside the 53 bits resolution
  * @param {boolean} [options.domainsEnabled=false] Enable the wrapping of the callback in the current domain, disabled by default to avoid perf hit
+ * @param {boolean|function} [options.checkServerIdentity=true] Ensure we check server identify during SSL, set to false to disable checking. Only works for Node 0.12.x or higher. You can pass in a boolean or your own checkServerIdentity override function
  * @param {object} [options.validateOptions=false] Validate MongoClient passed in options for correctness
  * @param {string} [options.appname=undefined] The name of the application that created this MongoClient instance. MongoDB 3.4 and newer will print this value in the server log upon establishing each connection. It is also recorded in the slow query log and profile collections
  * @param {string} [options.auth.user=undefined] The username for auth
@@ -39560,10 +35883,9 @@ const validOptions = __webpack_require__(/*! ./operations/connect */ "./node_mod
  * @param {boolean} [options.auto_reconnect=true] Enable auto reconnecting for single server instances
  * @param {boolean} [options.monitorCommands=false] Enable command monitoring for this client
  * @param {number} [options.minSize] If present, the connection pool will be initialized with minSize connections, and will never dip below minSize connections
- * @param {boolean} [options.useNewUrlParser=true] Determines whether or not to use the new url parser. Enables the new, spec-compliant, url parser shipped in the core driver. This url parser fixes a number of problems with the original parser, and aims to outright replace that parser in the near future. Defaults to true, and must be explicitly set to false to use the legacy url parser.
+ * @param {boolean} [options.useNewUrlParser=false] Determines whether or not to use the new url parser. Enables the new, spec-compliant, url parser shipped in the core driver. This url parser fixes a number of problems with the original parser, and aims to outright replace that parser in the near future.
  * @param {boolean} [options.useUnifiedTopology] Enables the new unified topology layer
- * @param {AutoEncrypter~AutoEncryptionOptions} [options.autoEncryption] Optionally enable client side auto encryption
- * @param {DriverInfoOptions} [options.driverInfo] Allows a wrapping driver to amend the client metadata generated by the driver to include information about the wrapping driver
+ * @param {AutoEncryptionOptions} [options.autoEncryption] Optionally enable client side auto encryption
  * @param {MongoClient~connectCallback} [callback] The command result callback
  * @return {MongoClient} a MongoClient instance
  */
@@ -39576,12 +35898,18 @@ function MongoClient(url, options) {
   this.s = {
     url: url,
     options: options || {},
-    promiseLibrary: (options && options.promiseLibrary) || Promise,
+    promiseLibrary: null,
     dbCache: new Map(),
-    sessions: new Set(),
+    sessions: [],
     writeConcern: WriteConcern.fromOptions(options),
     namespace: new MongoDBNamespace('admin')
   };
+
+  // Get the promiseLibrary
+  const promiseLibrary = this.s.options.promiseLibrary || Promise;
+
+  // Add the promise to the internal state
+  this.s.promiseLibrary = promiseLibrary;
 }
 
 /**
@@ -39626,16 +35954,9 @@ MongoClient.prototype.connect = function(callback) {
     throw new TypeError('`connect` only accepts a callback');
   }
 
-  const client = this;
-  return maybePromise(this, callback, cb => {
-    const err = validOptions(client.s.options);
-    if (err) return cb(err);
+  const operation = new ConnectOperation(this);
 
-    connect(client, client.s.url, client.s.options, err => {
-      if (err) return cb(err);
-      cb(null, client);
-    });
-  });
+  return executeOperation(this, operation, callback);
 };
 
 MongoClient.prototype.logout = deprecate(function(options, callback) {
@@ -39651,41 +35972,9 @@ MongoClient.prototype.logout = deprecate(function(options, callback) {
  * @return {Promise} returns Promise if no callback passed
  */
 MongoClient.prototype.close = function(force, callback) {
-  if (typeof force === 'function') {
-    callback = force;
-    force = false;
-  }
-
-  const client = this;
-  return maybePromise(this, callback, cb => {
-    const completeClose = err => {
-      client.emit('close', client);
-
-      if (!(client.topology instanceof NativeTopology)) {
-        for (const item of client.s.dbCache) {
-          item[1].emit('close', client);
-        }
-      }
-
-      client.removeAllListeners('close');
-      cb(err);
-    };
-
-    if (client.topology == null) {
-      completeClose();
-      return;
-    }
-
-    client.topology.close(force, err => {
-      const autoEncrypter = client.topology.s.options.autoEncrypter;
-      if (!autoEncrypter) {
-        completeClose(err);
-        return;
-      }
-
-      autoEncrypter.teardown(force, err2 => completeClose(err || err2));
-    });
-  });
+  if (typeof force === 'function') (callback = force), (force = false);
+  const operation = new CloseOperation(this, force);
+  return executeOperation(this, operation, callback);
 };
 
 /**
@@ -39762,29 +36051,21 @@ MongoClient.prototype.isConnected = function(options) {
  * @param {string} url The connection URI string
  * @param {object} [options] Optional settings
  * @param {number} [options.poolSize=5] The maximum size of the individual server pool
- * @param {boolean} [options.ssl=false] Enable SSL connection. *deprecated* use `tls` variants
- * @param {boolean} [options.sslValidate=false] Validate mongod server certificate against Certificate Authority *deprecated* use `tls` variants
- * @param {buffer} [options.sslCA=undefined] SSL Certificate store binary buffer *deprecated* use `tls` variants
- * @param {buffer} [options.sslCert=undefined] SSL Certificate binary buffer *deprecated* use `tls` variants
- * @param {buffer} [options.sslKey=undefined] SSL Key file binary buffer *deprecated* use `tls` variants
- * @param {string} [options.sslPass=undefined] SSL Certificate pass phrase *deprecated* use `tls` variants
- * @param {buffer} [options.sslCRL=undefined] SSL Certificate revocation list binary buffer *deprecated* use `tls` variants
- * @param {boolean|function} [options.checkServerIdentity=true] Ensure we check server identify during SSL, set to false to disable checking. Only works for Node 0.12.x or higher. You can pass in a boolean or your own checkServerIdentity override function. *deprecated* use `tls` variants
- * @param {boolean} [options.tls=false] Enable TLS connections
- * @param {boolean} [options.tlsInsecure=false] Relax TLS constraints, disabling validation
- * @param {string} [options.tlsCAFile] A path to file with either a single or bundle of certificate authorities to be considered trusted when making a TLS connection
- * @param {string} [options.tlsCertificateKeyFile] A path to the client certificate file or the client private key file; in the case that they both are needed, the files should be concatenated
- * @param {string} [options.tlsCertificateKeyFilePassword] The password to decrypt the client private key to be used for TLS connections
- * @param {boolean} [options.tlsAllowInvalidCertificates] Specifies whether or not the driver should error when the server’s TLS certificate is invalid
- * @param {boolean} [options.tlsAllowInvalidHostnames] Specifies whether or not the driver should error when there is a mismatch between the server’s hostname and the hostname specified by the TLS certificate
+ * @param {boolean} [options.ssl=false] Enable SSL connection.
+ * @param {boolean} [options.sslValidate=false] Validate mongod server certificate against Certificate Authority
+ * @param {buffer} [options.sslCA=undefined] SSL Certificate store binary buffer
+ * @param {buffer} [options.sslCert=undefined] SSL Certificate binary buffer
+ * @param {buffer} [options.sslKey=undefined] SSL Key file binary buffer
+ * @param {string} [options.sslPass=undefined] SSL Certificate pass phrase
+ * @param {buffer} [options.sslCRL=undefined] SSL Certificate revocation list binary buffer
  * @param {boolean} [options.autoReconnect=true] Enable autoReconnect for single server instances
  * @param {boolean} [options.noDelay=true] TCP Connection no delay
  * @param {boolean} [options.keepAlive=true] TCP Connection keep alive enabled
  * @param {boolean} [options.keepAliveInitialDelay=30000] The number of milliseconds to wait before initiating keepAlive on the TCP socket
- * @param {number} [options.connectTimeoutMS=10000] How long to wait for a connection to be established before timing out
- * @param {number} [options.socketTimeoutMS=360000] How long a send or receive on a socket can take before timing out
+ * @param {number} [options.connectTimeoutMS=30000] TCP Connection timeout setting
  * @param {number} [options.family] Version of IP stack. Can be 4, 6 or null (default).
  * If null, will attempt to connect with IPv6, and will fall back to IPv4 on failure
+ * @param {number} [options.socketTimeoutMS=360000] TCP Socket timeout setting
  * @param {number} [options.reconnectTries=30] Server attempt to reconnect #times
  * @param {number} [options.reconnectInterval=1000] Server will wait # milliseconds between retries
  * @param {boolean} [options.ha=true] Control if high availability monitoring runs for Replicaset or Mongos proxies
@@ -39814,6 +36095,7 @@ MongoClient.prototype.isConnected = function(options) {
  * @param {boolean} [options.promoteBuffers=false] Promotes Binary BSON values to native Node Buffers
  * @param {boolean} [options.promoteLongs=true] Promotes long values to number if they fit inside the 53 bits resolution
  * @param {boolean} [options.domainsEnabled=false] Enable the wrapping of the callback in the current domain, disabled by default to avoid perf hit
+ * @param {boolean|function} [options.checkServerIdentity=true] Ensure we check server identify during SSL, set to false to disable checking. Only works for Node 0.12.x or higher. You can pass in a boolean or your own checkServerIdentity override function
  * @param {object} [options.validateOptions=false] Validate MongoClient passed in options for correctness
  * @param {string} [options.appname=undefined] The name of the application that created this MongoClient instance. MongoDB 3.4 and newer will print this value in the server log upon establishing each connection. It is also recorded in the slow query log and profile collections
  * @param {string} [options.auth.user=undefined] The username for auth
@@ -39907,7 +36189,7 @@ MongoClient.prototype.withSession = function(options, operation) {
  * @param {string} [options.fullDocument='default'] Allowed values: ‘default’, ‘updateLookup’. When set to ‘updateLookup’, the change stream will include both a delta describing the changes to the document, as well as a copy of the entire document that was changed from some time after the change occurred.
  * @param {object} [options.resumeAfter] Specifies the logical starting point for the new change stream. This should be the _id field from a previously returned change stream document.
  * @param {number} [options.maxAwaitTimeMS] The maximum amount of time for the server to wait on new documents to satisfy a change stream query
- * @param {number} [options.batchSize=1000] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
+ * @param {number} [options.batchSize] The number of documents to return per batch. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {object} [options.collation] Specify collation settings for operation. See {@link https://docs.mongodb.com/manual/reference/command/aggregate|aggregation documentation}.
  * @param {ReadPreference} [options.readPreference] The read preference. See {@link https://docs.mongodb.com/manual/reference/read-preference|read preference documentation}.
  * @param {Timestamp} [options.startAtOperationTime] receive change events that occur after the specified timestamp
@@ -40280,6 +36562,64 @@ class BulkWriteOperation extends OperationBase {
 }
 
 module.exports = BulkWriteOperation;
+
+
+/***/ }),
+
+/***/ "./node_modules/mongodb/lib/operations/close.js":
+/*!******************************************************!*\
+  !*** ./node_modules/mongodb/lib/operations/close.js ***!
+  \******************************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
+const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
+
+class CloseOperation extends OperationBase {
+  constructor(client, force) {
+    super();
+    this.client = client;
+    this.force = force;
+  }
+
+  execute(callback) {
+    const client = this.client;
+    const force = this.force;
+    const completeClose = err => {
+      client.emit('close', client);
+      for (const item of client.s.dbCache) {
+        item[1].emit('close', client);
+      }
+
+      client.removeAllListeners('close');
+      callback(err, null);
+    };
+
+    if (client.topology == null) {
+      completeClose();
+      return;
+    }
+
+    client.topology.close(force, err => {
+      const autoEncrypter = client.topology.s.options.autoEncrypter;
+      if (!autoEncrypter) {
+        completeClose(err);
+        return;
+      }
+
+      autoEncrypter.teardown(force, err2 => completeClose(err || err2));
+    });
+  }
+}
+
+defineAspects(CloseOperation, [Aspect.SKIP_SESSION]);
+
+module.exports = CloseOperation;
 
 
 /***/ }),
@@ -40931,7 +37271,9 @@ class CommandOperationV2 extends OperationBase {
     if (options.collation && serverWireVersion < SUPPORTS_WRITE_CONCERN_AND_COLLATION) {
       callback(
         new MongoError(
-          `Server ${server.name}, which reports wire version ${serverWireVersion}, does not support collation`
+          `Server ${
+            server.name
+          }, which reports wire version ${serverWireVersion}, does not support collation`
         )
       );
       return;
@@ -41181,7 +37523,8 @@ function indexInformation(db, name, options, callback) {
   }
 
   // Get the list of indexes of the specified collection
-  db.collection(name)
+  db
+    .collection(name)
     .listIndexes(options)
     .toArray((err, indexes) => {
       if (err) return callback(toError(err));
@@ -41344,10 +37687,6 @@ function updateDocuments(coll, selector, document, options, callback) {
   op.upsert = options.upsert !== void 0 ? !!options.upsert : false;
   op.multi = options.multi !== void 0 ? !!options.multi : false;
 
-  if (options.hint) {
-    op.hint = options.hint;
-  }
-
   if (finalOptions.arrayFilters) {
     op.arrayFilters = finalOptions.arrayFilters;
     delete finalOptions.arrayFilters;
@@ -41419,6 +37758,9 @@ module.exports = {
 "use strict";
 
 
+const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
 const deprecate = __webpack_require__(/*! util */ "util").deprecate;
 const Logger = __webpack_require__(/*! ../core */ "./node_modules/mongodb/lib/core/index.js").Logger;
 const MongoCredentials = __webpack_require__(/*! ../core */ "./node_modules/mongodb/lib/core/index.js").MongoCredentials;
@@ -41431,10 +37773,6 @@ const ReadPreference = __webpack_require__(/*! ../core */ "./node_modules/mongod
 const ReplSet = __webpack_require__(/*! ../topologies/replset */ "./node_modules/mongodb/lib/topologies/replset.js");
 const Server = __webpack_require__(/*! ../topologies/server */ "./node_modules/mongodb/lib/topologies/server.js");
 const ServerSessionPool = __webpack_require__(/*! ../core */ "./node_modules/mongodb/lib/core/index.js").Sessions.ServerSessionPool;
-const emitDeprecationWarning = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").emitDeprecationWarning;
-const fs = __webpack_require__(/*! fs */ "fs");
-const BSON = __webpack_require__(/*! ../core/connection/utils */ "./node_modules/mongodb/lib/core/connection/utils.js").retrieveBSON();
-const CMAP_EVENT_NAMES = __webpack_require__(/*! ../cmap/events */ "./node_modules/mongodb/lib/cmap/events.js").CMAP_EVENT_NAMES;
 
 let client;
 function loadClient() {
@@ -41557,20 +37895,7 @@ const validOptionNames = [
   'useUnifiedTopology',
   'serverSelectionTimeoutMS',
   'useRecoveryToken',
-  'autoEncryption',
-  'driverInfo',
-  'tls',
-  'tlsInsecure',
-  'tlsinsecure',
-  'tlsAllowInvalidCertificates',
-  'tlsAllowInvalidHostnames',
-  'tlsCAFile',
-  'tlsCertificateFile',
-  'tlsCertificateKeyFile',
-  'tlsCertificateKeyFilePassword',
-  'minHeartbeatFrequencyMS',
-  'heartbeatFrequencyMS',
-  'waitQueueTimeoutMS'
+  'autoEncryption'
 ];
 
 const ignoreOptionNames = ['native_parser'];
@@ -41607,6 +37932,28 @@ const LEGACY_OPTIONS_MAP = validOptionNames.reduce((obj, name) => {
   return obj;
 }, {});
 
+class ConnectOperation extends OperationBase {
+  constructor(mongoClient) {
+    super();
+
+    this.mongoClient = mongoClient;
+  }
+
+  execute(callback) {
+    const mongoClient = this.mongoClient;
+    const err = validOptions(mongoClient.s.options);
+
+    // Did we have a validation error
+    if (err) return callback(err);
+    // Fallback to callback based connect
+    connect(mongoClient, mongoClient.s.url, mongoClient.s.options, err => {
+      if (err) return callback(err);
+      callback(null, mongoClient);
+    });
+  }
+}
+defineAspects(ConnectOperation, [Aspect.SKIP_SESSION]);
+
 function addListeners(mongoClient, topology) {
   topology.on('authenticated', createListener(mongoClient, 'authenticated'));
   topology.on('error', createListener(mongoClient, 'error'));
@@ -41621,10 +37968,10 @@ function addListeners(mongoClient, topology) {
 
 function assignTopology(client, topology) {
   client.topology = topology;
-
-  if (!(topology instanceof NativeTopology)) {
-    topology.s.sessionPool = new ServerSessionPool(topology.s.coreTopology);
-  }
+  topology.s.sessionPool =
+    topology instanceof NativeTopology
+      ? new ServerSessionPool(topology)
+      : new ServerSessionPool(topology.s.coreTopology);
 }
 
 // Clear out all events
@@ -41652,20 +37999,8 @@ function collectEvents(mongoClient, topology) {
   return collectedEvents;
 }
 
-function resolveTLSOptions(options) {
-  if (options.tls == null) {
-    return;
-  }
-
-  ['sslCA', 'sslKey', 'sslCert'].forEach(optionName => {
-    if (options[optionName]) {
-      options[optionName] = fs.readFileSync(options[optionName]);
-    }
-  });
-}
-
 const emitDeprecationForNonUnifiedTopology = deprecate(() => {},
-'current Server Discovery and Monitoring engine is deprecated, and will be removed in a future version. ' + 'To use the new Server Discover and Monitoring engine, pass option { useUnifiedTopology: true } to the MongoClient constructor.');
+'current Server Discovery and Monitoring engine is deprecated, and will be removed in a future version. ' + 'To use the new Server Discover and Monitoring engine, pass option { useUnifiedTopology: true } to MongoClient.connect.');
 
 function connect(mongoClient, url, options, callback) {
   options = Object.assign({}, options);
@@ -41683,10 +38018,8 @@ function connect(mongoClient, url, options, callback) {
     return connectWithUrl(mongoClient, url, options, connectCallback);
   }
 
-  const useNewUrlParser = options.useNewUrlParser !== false;
-
-  const parseFn = useNewUrlParser ? parse : legacyParse;
-  const transform = useNewUrlParser ? transformUrlOptions : legacyTransformUrlOptions;
+  const parseFn = options.useNewUrlParser ? parse : legacyParse;
+  const transform = options.useNewUrlParser ? transformUrlOptions : legacyTransformUrlOptions;
 
   parseFn(url, options, (err, _object) => {
     // Do not attempt to connect if parsing error
@@ -41700,17 +38033,13 @@ function connect(mongoClient, url, options, callback) {
 
     // Check if we have connection and socket timeout set
     if (_finalOptions.socketTimeoutMS == null) _finalOptions.socketTimeoutMS = 360000;
-    if (_finalOptions.connectTimeoutMS == null) _finalOptions.connectTimeoutMS = 10000;
+    if (_finalOptions.connectTimeoutMS == null) _finalOptions.connectTimeoutMS = 30000;
     if (_finalOptions.retryWrites == null) _finalOptions.retryWrites = true;
     if (_finalOptions.useRecoveryToken == null) _finalOptions.useRecoveryToken = true;
-    if (_finalOptions.readPreference == null) _finalOptions.readPreference = 'primary';
 
     if (_finalOptions.db_options && _finalOptions.db_options.auth) {
       delete _finalOptions.db_options.auth;
     }
-
-    // resolve tls options if needed
-    resolveTLSOptions(_finalOptions);
 
     // Store the merged options object
     mongoClient.s.options = _finalOptions;
@@ -41863,30 +38192,6 @@ function createServer(mongoClient, options, callback) {
   });
 }
 
-const DEPRECATED_UNIFIED_EVENTS = new Set([
-  'reconnect',
-  'reconnectFailed',
-  'attemptReconnect',
-  'joined',
-  'left',
-  'ping',
-  'ha',
-  'all',
-  'fullsetup',
-  'open'
-]);
-
-function registerDeprecatedEventNotifiers(client) {
-  client.on('newListener', eventName => {
-    if (DEPRECATED_UNIFIED_EVENTS.has(eventName)) {
-      emitDeprecationWarning(
-        `The \`${eventName}\` event is no longer supported by the unified topology, please read more by visiting http://bit.ly/2D8WfT6`,
-        'DeprecationWarning'
-      );
-    }
-  });
-}
-
 function createTopology(mongoClient, topologyType, options, callback) {
   // Pass in the promise library
   options.promiseLibrary = mongoClient.s.promiseLibrary;
@@ -41897,8 +38202,36 @@ function createTopology(mongoClient, topologyType, options, callback) {
   // Set default options
   const servers = translateOptions(options, translationOptions);
 
-  // determine CSFLE support
-  if (options.autoEncryption != null) {
+  // Create the topology
+  let topology;
+  if (topologyType === 'mongos') {
+    topology = new Mongos(servers, options);
+  } else if (topologyType === 'replicaset') {
+    topology = new ReplSet(servers, options);
+  } else if (topologyType === 'unified') {
+    topology = new NativeTopology(options.servers, options);
+  }
+
+  // Add listeners
+  addListeners(mongoClient, topology);
+
+  // Propagate the events to the client
+  relayEvents(mongoClient, topology);
+
+  // Open the connection
+  topology.connect(options, (err, newTopology) => {
+    if (err) {
+      topology.close(true);
+      return callback(err);
+    }
+
+    assignTopology(mongoClient, newTopology);
+    if (options.autoEncryption == null) {
+      callback(null, newTopology);
+      return;
+    }
+
+    // setup for client side encryption
     let AutoEncrypter;
     try {
       /*require.resolve*/(!(function webpackMissingModule() { var e = new Error("Cannot find module 'mongodb-client-encryption'"); e.code = 'MODULE_NOT_FOUND'; throw e; }()));
@@ -41910,100 +38243,19 @@ function createTopology(mongoClient, topologyType, options, callback) {
       );
       return;
     }
-
     try {
-      let mongodbClientEncryption = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module 'mongodb-client-encryption'"); e.code = 'MODULE_NOT_FOUND'; throw e; }()));
-      if (typeof mongodbClientEncryption.extension !== 'function') {
-        callback(
-          new MongoError(
-            'loaded version of `mongodb-client-encryption` does not have property `extension`. Please make sure you are loading the correct version of `mongodb-client-encryption`'
-          )
-        );
-      }
-      AutoEncrypter = mongodbClientEncryption.extension(__webpack_require__(/*! ../../index */ "./node_modules/mongodb/index.js")).AutoEncrypter;
+      AutoEncrypter = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module 'mongodb-client-encryption'"); e.code = 'MODULE_NOT_FOUND'; throw e; }()))(__webpack_require__(/*! ../../index */ "./node_modules/mongodb/index.js")).AutoEncrypter;
     } catch (err) {
       callback(err);
       return;
     }
 
-    const mongoCryptOptions = Object.assign(
-      {
-        bson:
-          options.bson ||
-          new BSON([
-            BSON.Binary,
-            BSON.Code,
-            BSON.DBRef,
-            BSON.Decimal128,
-            BSON.Double,
-            BSON.Int32,
-            BSON.Long,
-            BSON.Map,
-            BSON.MaxKey,
-            BSON.MinKey,
-            BSON.ObjectId,
-            BSON.BSONRegExp,
-            BSON.Symbol,
-            BSON.Timestamp
-          ])
-      },
-      options.autoEncryption
-    );
-
-    options.autoEncrypter = new AutoEncrypter(mongoClient, mongoCryptOptions);
-  }
-
-  // Create the topology
-  let topology;
-  if (topologyType === 'mongos') {
-    topology = new Mongos(servers, options);
-  } else if (topologyType === 'replicaset') {
-    topology = new ReplSet(servers, options);
-  } else if (topologyType === 'unified') {
-    topology = new NativeTopology(options.servers, options);
-    registerDeprecatedEventNotifiers(mongoClient);
-  }
-
-  // Add listeners
-  addListeners(mongoClient, topology);
-
-  // Propagate the events to the client
-  relayEvents(mongoClient, topology);
-
-  // Open the connection
-  assignTopology(mongoClient, topology);
-
-  // initialize CSFLE if requested
-  if (options.autoEncrypter) {
-    options.autoEncrypter.init(err => {
-      if (err) {
-        callback(err);
-        return;
-      }
-
-      topology.connect(options, err => {
-        if (err) {
-          topology.close(true);
-          callback(err);
-          return;
-        }
-
-        callback(undefined, topology);
-      });
+    const mongoCryptOptions = Object.assign({}, options.autoEncryption);
+    topology.s.options.autoEncrypter = new AutoEncrypter(mongoClient, mongoCryptOptions);
+    topology.s.options.autoEncrypter.init(err => {
+      if (err) return callback(err, null);
+      callback(null, newTopology);
     });
-
-    return;
-  }
-
-  // otherwise connect normally
-  topology.connect(options, err => {
-    if (err) {
-      topology.close(true);
-      return callback(err);
-    }
-
-    callback(undefined, topology);
-    return;
   });
 }
 
@@ -42018,7 +38270,7 @@ function createUnifiedOptions(finalOptions, options) {
     'rs_options',
     'mongos_options'
   ];
-  const noMerge = ['readconcern', 'compression', 'autoencryption'];
+  const noMerge = ['readconcern', 'compression'];
 
   for (const name in options) {
     if (noMerge.indexOf(name.toLowerCase()) !== -1) {
@@ -42096,28 +38348,23 @@ function mergeOptions(target, source, flatten) {
 
 function relayEvents(mongoClient, topology) {
   const serverOrCommandEvents = [
-    // APM
-    'commandStarted',
-    'commandSucceeded',
-    'commandFailed',
-
-    // SDAM
     'serverOpening',
-    'serverClosed',
     'serverDescriptionChanged',
     'serverHeartbeatStarted',
     'serverHeartbeatSucceeded',
     'serverHeartbeatFailed',
+    'serverClosed',
     'topologyOpening',
     'topologyClosed',
     'topologyDescriptionChanged',
-
-    // Legacy
+    'commandStarted',
+    'commandSucceeded',
+    'commandFailed',
     'joined',
     'left',
     'ping',
     'ha'
-  ].concat(CMAP_EVENT_NAMES);
+  ];
 
   serverOrCommandEvents.forEach(event => {
     topology.on(event, (object1, object2) => {
@@ -42161,16 +38408,16 @@ function transformUrlOptions(_object) {
     object.dbName = _object.defaultDatabase;
   }
 
-  if (object.maxPoolSize) {
-    object.poolSize = object.maxPoolSize;
+  if (object.maxpoolsize) {
+    object.poolSize = object.maxpoolsize;
   }
 
-  if (object.readConcernLevel) {
-    object.readConcern = new ReadConcern(object.readConcernLevel);
+  if (object.readconcernlevel) {
+    object.readConcern = new ReadConcern(object.readconcernlevel);
   }
 
-  if (object.wTimeoutMS) {
-    object.wtimeout = object.wTimeoutMS;
+  if (object.wtimeoutms) {
+    object.wtimeout = object.wtimeoutms;
   }
 
   if (_object.srvHost) {
@@ -42200,7 +38447,7 @@ function translateOptions(options, translationOptions) {
 
   // Set the socket and connection timeouts
   if (options.socketTimeoutMS == null) options.socketTimeoutMS = 360000;
-  if (options.connectTimeoutMS == null) options.connectTimeoutMS = 10000;
+  if (options.connectTimeoutMS == null) options.connectTimeoutMS = 30000;
 
   if (!translationOptions.createServers) {
     return;
@@ -42214,7 +38461,7 @@ function translateOptions(options, translationOptions) {
   });
 }
 
-module.exports = { validOptions, connect };
+module.exports = ConnectOperation;
 
 
 /***/ }),
@@ -42229,7 +38476,9 @@ module.exports = { validOptions, connect };
 "use strict";
 
 
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
 const buildCountCommand = __webpack_require__(/*! ./common_functions */ "./node_modules/mongodb/lib/operations/common_functions.js").buildCountCommand;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
 const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
 
 class CountOperation extends OperationBase {
@@ -42293,6 +38542,8 @@ class CountOperation extends OperationBase {
     );
   }
 }
+
+defineAspects(CountOperation, Aspect.SKIP_SESSION);
 
 module.exports = CountOperation;
 
@@ -42431,7 +38682,8 @@ class CreateCollectionOperation extends CommandOperation {
     listCollectionOptions = applyWriteConcern(listCollectionOptions, { db }, listCollectionOptions);
 
     // Check if we have the name
-    db.listCollections({ name }, listCollectionOptions)
+    db
+      .listCollections({ name }, listCollectionOptions)
       .setReadPreference(ReadPreference.PRIMARY)
       .toArray((err, collections) => {
         if (err != null) return handleCallback(callback, err, null);
@@ -42669,6 +38921,7 @@ module.exports = CreateIndexesOperation;
 
 
 const buildCountCommand = __webpack_require__(/*! ./collection_ops */ "./node_modules/mongodb/lib/operations/collection_ops.js").buildCountCommand;
+const formattedOrderClause = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").formattedOrderClause;
 const handleCallback = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").handleCallback;
 const MongoError = __webpack_require__(/*! ../core */ "./node_modules/mongodb/lib/core/index.js").MongoError;
 const push = Array.prototype.push;
@@ -42773,6 +39026,34 @@ function each(cursor, callback) {
   }
 }
 
+/**
+ * Check if there is any document still available in the cursor.
+ *
+ * @method
+ * @param {Cursor} cursor The Cursor instance on which to run.
+ * @param {Cursor~resultCallback} [callback] The result callback.
+ */
+function hasNext(cursor, callback) {
+  if (cursor.s.currentDoc) {
+    return callback(null, true);
+  }
+
+  if (cursor.isNotified()) {
+    return callback(null, false);
+  }
+
+  nextObject(cursor, (err, doc) => {
+    if (err) return callback(err, null);
+    if (cursor.s.state === CursorState.CLOSED || cursor.isDead()) {
+      return callback(null, false);
+    }
+
+    if (!doc) return callback(null, false);
+    cursor.s.currentDoc = doc;
+    callback(null, true);
+  });
+}
+
 // Trampoline emptying the number of retrieved items
 // without incurring a nextTick operation
 function loop(cursor, callback) {
@@ -42782,6 +39063,48 @@ function loop(cursor, callback) {
   cursor._next(callback);
   // Loop
   return loop;
+}
+
+/**
+ * Get the next available document from the cursor. Returns null if no more documents are available.
+ *
+ * @method
+ * @param {Cursor} cursor The Cursor instance from which to get the next document.
+ * @param {Cursor~resultCallback} [callback] The result callback.
+ */
+function next(cursor, callback) {
+  // Return the currentDoc if someone called hasNext first
+  if (cursor.s.currentDoc) {
+    const doc = cursor.s.currentDoc;
+    cursor.s.currentDoc = null;
+    return callback(null, doc);
+  }
+
+  // Return the next object
+  nextObject(cursor, callback);
+}
+
+// Get the next available document from the cursor, returns null if no more documents are available.
+function nextObject(cursor, callback) {
+  if (cursor.s.state === CursorState.CLOSED || (cursor.isDead && cursor.isDead()))
+    return handleCallback(
+      callback,
+      MongoError.create({ message: 'Cursor is closed', driver: true })
+    );
+  if (cursor.s.state === CursorState.INIT && cursor.cmd.sort) {
+    try {
+      cursor.cmd.sort = formattedOrderClause(cursor.cmd.sort);
+    } catch (err) {
+      return handleCallback(callback, err);
+    }
+  }
+
+  // Get the next object
+  cursor._next((err, doc) => {
+    cursor.s.state = CursorState.OPEN;
+    if (err) return handleCallback(callback, err);
+    handleCallback(callback, null, doc);
+  });
 }
 
 /**
@@ -42833,7 +39156,7 @@ function toArray(cursor, callback) {
   fetchDocs();
 }
 
-module.exports = { count, each, toArray };
+module.exports = { count, each, hasNext, next, toArray };
 
 
 /***/ }),
@@ -43322,7 +39645,8 @@ function indexInformation(db, name, options, callback) {
   }
 
   // Get the list of indexes of the specified collection
-  db.collection(name)
+  db
+    .collection(name)
     .listIndexes(options)
     .toArray((err, indexes) => {
       if (err) return callback(toError(err));
@@ -43343,7 +39667,8 @@ function indexInformation(db, name, options, callback) {
  */
 function profilingInfo(db, options, callback) {
   try {
-    db.collection('system.profile')
+    db
+      .collection('system.profile')
       .find({}, options)
       .toArray(callback);
   } catch (err) {
@@ -44160,8 +40485,23 @@ function executeOperation(topology, operation, callback) {
     throw new TypeError('This method requires a valid operation instance');
   }
 
-  if (isUnifiedTopology(topology) && topology.shouldCheckForSessionSupport()) {
-    return selectServerForSessionSupport(topology, operation, callback);
+  if (
+    isUnifiedTopology(topology) &&
+    !operation.hasAspect(Aspect.SKIP_SESSION) &&
+    topology.shouldCheckForSessionSupport()
+  ) {
+    // TODO: this is only supported for unified topology, the first part of this check
+    //       should go away when we drop legacy topology types.
+    topology.selectServer(ReadPreference.primaryPreferred, err => {
+      if (err) {
+        callback(err);
+        return;
+      }
+
+      executeOperation(topology, operation, callback);
+    });
+
+    return;
   }
 
   const Promise = topology.s.promiseLibrary;
@@ -44169,7 +40509,7 @@ function executeOperation(topology, operation, callback) {
   // The driver sessions spec mandates that we implicitly create sessions for operations
   // that are not explicitly provided with a session.
   let session, owner;
-  if (topology.hasSessionSupport()) {
+  if (!operation.hasAspect(Aspect.SKIP_SESSION) && topology.hasSessionSupport()) {
     if (operation.session == null) {
       owner = Symbol();
       session = topology.startSession({ owner });
@@ -44179,45 +40519,54 @@ function executeOperation(topology, operation, callback) {
     }
   }
 
-  let result;
-  if (typeof callback !== 'function') {
-    result = new Promise((resolve, reject) => {
-      callback = (err, res) => {
+  const makeExecuteCallback = (resolve, reject) =>
+    function executeCallback(err, result) {
+      if (session && session.owner === owner) {
+        session.endSession(() => {
+          if (operation.session === session) {
+            operation.clearSession();
+          }
+          if (err) return reject(err);
+          resolve(result);
+        });
+      } else {
         if (err) return reject(err);
-        resolve(res);
-      };
-    });
-  }
-
-  function executeCallback(err, result) {
-    if (session && session.owner === owner) {
-      session.endSession();
-      if (operation.session === session) {
-        operation.clearSession();
+        resolve(result);
       }
-    }
+    };
 
-    callback(err, result);
-  }
+  // Execute using callback
+  if (typeof callback === 'function') {
+    const handler = makeExecuteCallback(
+      result => callback(null, result),
+      err => callback(err, null)
+    );
 
-  try {
-    if (operation.hasAspect(Aspect.EXECUTE_WITH_SELECTION)) {
-      executeWithServerSelection(topology, operation, executeCallback);
-    } else {
-      operation.execute(executeCallback);
-    }
-  } catch (e) {
-    if (session && session.owner === owner) {
-      session.endSession();
-      if (operation.session === session) {
-        operation.clearSession();
+    try {
+      if (operation.hasAspect(Aspect.EXECUTE_WITH_SELECTION)) {
+        return executeWithServerSelection(topology, operation, handler);
+      } else {
+        return operation.execute(handler);
       }
+    } catch (e) {
+      handler(e);
+      throw e;
     }
-
-    throw e;
   }
 
-  return result;
+  return new Promise(function(resolve, reject) {
+    const handler = makeExecuteCallback(resolve, reject);
+
+    try {
+      if (operation.hasAspect(Aspect.EXECUTE_WITH_SELECTION)) {
+        return executeWithServerSelection(topology, operation, handler);
+      } else {
+        return operation.execute(handler);
+      }
+    } catch (e) {
+      handler(e);
+    }
+  });
 }
 
 function supportsRetryableReads(server) {
@@ -44272,8 +40621,7 @@ function executeWithServerSelection(topology, operation, callback) {
 
     const shouldRetryReads =
       topology.s.options.retryReads !== false &&
-      operation.session &&
-      !inTransaction &&
+      (operation.session && !inTransaction) &&
       supportsRetryableReads(server) &&
       operation.canRetryRead;
 
@@ -44286,34 +40634,42 @@ function executeWithServerSelection(topology, operation, callback) {
   });
 }
 
-// TODO: This is only supported for unified topology, it should go away once
-//       we remove support for legacy topology types.
-function selectServerForSessionSupport(topology, operation, callback) {
-  const Promise = topology.s.promiseLibrary;
+module.exports = executeOperation;
 
-  let result;
-  if (typeof callback !== 'function') {
-    result = new Promise((resolve, reject) => {
-      callback = (err, result) => {
-        if (err) return reject(err);
-        resolve(result);
-      };
-    });
+
+/***/ }),
+
+/***/ "./node_modules/mongodb/lib/operations/explain.js":
+/*!********************************************************!*\
+  !*** ./node_modules/mongodb/lib/operations/explain.js ***!
+  \********************************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
+const CoreCursor = __webpack_require__(/*! ../core/cursor */ "./node_modules/mongodb/lib/core/cursor.js").CoreCursor;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
+const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
+
+class ExplainOperation extends OperationBase {
+  constructor(cursor) {
+    super();
+
+    this.cursor = cursor;
   }
 
-  topology.selectServer(ReadPreference.primaryPreferred, err => {
-    if (err) {
-      callback(err);
-      return;
-    }
-
-    executeOperation(topology, operation, callback);
-  });
-
-  return result;
+  execute() {
+    const cursor = this.cursor;
+    return CoreCursor.prototype._next.apply(cursor, arguments);
+  }
 }
 
-module.exports = executeOperation;
+defineAspects(ExplainOperation, Aspect.SKIP_SESSION);
+
+module.exports = ExplainOperation;
 
 
 /***/ }),
@@ -44331,7 +40687,6 @@ module.exports = executeOperation;
 const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
 const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
 const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
-const resolveReadPreference = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").resolveReadPreference;
 
 class FindOperation extends OperationBase {
   constructor(collection, ns, command, options) {
@@ -44339,7 +40694,6 @@ class FindOperation extends OperationBase {
 
     this.ns = ns;
     this.cmd = command;
-    this.readPreference = resolveReadPreference(collection, this.options);
   }
 
   execute(server, callback) {
@@ -44356,7 +40710,8 @@ class FindOperation extends OperationBase {
 defineAspects(FindOperation, [
   Aspect.READ_OPERATION,
   Aspect.RETRYABLE,
-  Aspect.EXECUTE_WITH_SELECTION
+  Aspect.EXECUTE_WITH_SELECTION,
+  Aspect.SKIP_SESSION
 ]);
 
 module.exports = FindOperation;
@@ -44501,20 +40856,16 @@ class FindOneOperation extends OperationBase {
     const query = this.query;
     const options = this.options;
 
-    try {
-      const cursor = coll
-        .find(query, options)
-        .limit(-1)
-        .batchSize(1);
+    const cursor = coll
+      .find(query, options)
+      .limit(-1)
+      .batchSize(1);
 
-      // Return the item
-      cursor.next((err, item) => {
-        if (err != null) return handleCallback(callback, toError(err), null);
-        handleCallback(callback, null, item);
-      });
-    } catch (e) {
-      callback(e);
-    }
+    // Return the item
+    cursor.next((err, item) => {
+      if (err != null) return handleCallback(callback, toError(err), null);
+      handleCallback(callback, null, item);
+    });
   }
 }
 
@@ -44699,6 +41050,58 @@ class GeoHaystackSearchOperation extends OperationBase {
 defineAspects(GeoHaystackSearchOperation, Aspect.READ_OPERATION);
 
 module.exports = GeoHaystackSearchOperation;
+
+
+/***/ }),
+
+/***/ "./node_modules/mongodb/lib/operations/has_next.js":
+/*!*********************************************************!*\
+  !*** ./node_modules/mongodb/lib/operations/has_next.js ***!
+  \*********************************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
+const loadCursor = __webpack_require__(/*! ../dynamic_loaders */ "./node_modules/mongodb/lib/dynamic_loaders.js").loadCursor;
+const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
+const nextObject = __webpack_require__(/*! ./common_functions */ "./node_modules/mongodb/lib/operations/common_functions.js").nextObject;
+
+class HasNextOperation extends OperationBase {
+  constructor(cursor) {
+    super();
+
+    this.cursor = cursor;
+  }
+
+  execute(callback) {
+    const cursor = this.cursor;
+    let Cursor = loadCursor();
+
+    if (cursor.s.currentDoc) {
+      return callback(null, true);
+    }
+
+    if (cursor.isNotified()) {
+      return callback(null, false);
+    }
+
+    nextObject(cursor, (err, doc) => {
+      if (err) return callback(err, null);
+      if (cursor.s.state === Cursor.CLOSED || cursor.isDead()) return callback(null, false);
+      if (!doc) return callback(null, false);
+      cursor.s.currentDoc = doc;
+      callback(null, true);
+    });
+  }
+}
+
+defineAspects(HasNextOperation, Aspect.SKIP_SESSION);
+
+module.exports = HasNextOperation;
 
 
 /***/ }),
@@ -45299,8 +41702,7 @@ class MapReduceOperation extends OperationBase {
       options.readPreference !== false &&
       options.readPreference !== 'primary' &&
       options['out'] &&
-      options['out'].inline !== 1 &&
-      options['out'] !== 'inline'
+      (options['out'].inline !== 1 && options['out'] !== 'inline')
     ) {
       // Force readPreference to primary
       options.readPreference = 'primary';
@@ -45404,6 +41806,50 @@ module.exports = MapReduceOperation;
 
 /***/ }),
 
+/***/ "./node_modules/mongodb/lib/operations/next.js":
+/*!*****************************************************!*\
+  !*** ./node_modules/mongodb/lib/operations/next.js ***!
+  \*****************************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
+const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
+const nextObject = __webpack_require__(/*! ./common_functions */ "./node_modules/mongodb/lib/operations/common_functions.js").nextObject;
+
+class NextOperation extends OperationBase {
+  constructor(cursor) {
+    super();
+
+    this.cursor = cursor;
+  }
+
+  execute(callback) {
+    const cursor = this.cursor;
+
+    // Return the currentDoc if someone called hasNext first
+    if (cursor.s.currentDoc) {
+      const doc = cursor.s.currentDoc;
+      cursor.s.currentDoc = null;
+      return callback(null, doc);
+    }
+
+    // Return the next object
+    nextObject(cursor, callback);
+  }
+}
+
+defineAspects(NextOperation, Aspect.SKIP_SESSION);
+
+module.exports = NextOperation;
+
+
+/***/ }),
+
 /***/ "./node_modules/mongodb/lib/operations/operation.js":
 /*!**********************************************************!*\
   !*** ./node_modules/mongodb/lib/operations/operation.js ***!
@@ -45416,6 +41862,7 @@ module.exports = MapReduceOperation;
 
 const Aspect = {
   READ_OPERATION: Symbol('READ_OPERATION'),
+  SKIP_SESSION: Symbol('SKIP_SESSION'),
   WRITE_OPERATION: Symbol('WRITE_OPERATION'),
   RETRYABLE: Symbol('RETRYABLE'),
   EXECUTE_WITH_SELECTION: Symbol('EXECUTE_WITH_SELECTION')
@@ -45425,7 +41872,8 @@ const Aspect = {
  * This class acts as a parent class for any operation and is responsible for setting this.options,
  * as well as setting and getting a session.
  * Additionally, this class implements `hasAspect`, which determines whether an operation has
- * a specific aspect.
+ * a specific aspect, including `SKIP_SESSION` and other aspects to encode retryability
+ * and other functionality.
  */
 class OperationBase {
   constructor(options) {
@@ -45665,7 +42113,7 @@ class RemoveUserOperation extends CommandOperation {
   }
 }
 
-defineAspects(RemoveUserOperation, Aspect.WRITE_OPERATION);
+defineAspects(RemoveUserOperation, [Aspect.WRITE_OPERATION, Aspect.SKIP_SESSIONS]);
 
 module.exports = RemoveUserOperation;
 
@@ -45795,7 +42243,7 @@ function replaceCallback(err, r, doc, callback) {
     Array.isArray(r.result.upserted) && r.result.upserted.length ? r.result.upserted.length : 0;
   r.matchedCount =
     Array.isArray(r.result.upserted) && r.result.upserted.length > 0 ? 0 : r.result.n;
-  r.ops = [doc]; // TODO: Should we still have this?
+  r.ops = [doc];
   if (callback) callback(null, r);
 }
 
@@ -45917,6 +42365,84 @@ class StatsOperation extends CommandOperation {
 defineAspects(StatsOperation, Aspect.READ_OPERATION);
 
 module.exports = StatsOperation;
+
+
+/***/ }),
+
+/***/ "./node_modules/mongodb/lib/operations/to_array.js":
+/*!*********************************************************!*\
+  !*** ./node_modules/mongodb/lib/operations/to_array.js ***!
+  \*********************************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+const Aspect = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").Aspect;
+const defineAspects = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").defineAspects;
+const handleCallback = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").handleCallback;
+const CursorState = __webpack_require__(/*! ../core/cursor */ "./node_modules/mongodb/lib/core/cursor.js").CursorState;
+const OperationBase = __webpack_require__(/*! ./operation */ "./node_modules/mongodb/lib/operations/operation.js").OperationBase;
+const push = Array.prototype.push;
+
+class ToArrayOperation extends OperationBase {
+  constructor(cursor) {
+    super();
+
+    this.cursor = cursor;
+  }
+
+  execute(callback) {
+    const cursor = this.cursor;
+    const items = [];
+
+    // Reset cursor
+    cursor.rewind();
+    cursor.s.state = CursorState.INIT;
+
+    // Fetch all the documents
+    const fetchDocs = () => {
+      cursor._next((err, doc) => {
+        if (err) {
+          return cursor._endSession
+            ? cursor._endSession(() => handleCallback(callback, err))
+            : handleCallback(callback, err);
+        }
+
+        if (doc == null) {
+          return cursor.close({ skipKillCursors: true }, () =>
+            handleCallback(callback, null, items)
+          );
+        }
+
+        // Add doc to items
+        items.push(doc);
+
+        // Get all buffered objects
+        if (cursor.bufferedCount() > 0) {
+          let docs = cursor.readBufferedDocuments(cursor.bufferedCount());
+
+          // Transform the doc if transform method added
+          if (cursor.s.transforms && typeof cursor.s.transforms.doc === 'function') {
+            docs = docs.map(cursor.s.transforms.doc);
+          }
+
+          push.apply(items, docs);
+        }
+
+        // Attempt a fetch
+        fetchDocs();
+      });
+    };
+
+    fetchDocs();
+  }
+}
+
+defineAspects(ToArrayOperation, Aspect.SKIP_SESSION);
+
+module.exports = ToArrayOperation;
 
 
 /***/ }),
@@ -46236,8 +42762,8 @@ var legalOptionNames = [
  * @param {boolean} [options.socketOptions.noDelay=true] TCP Socket NoDelay option.
  * @param {boolean} [options.socketOptions.keepAlive=true] TCP Connection keep alive enabled
  * @param {number} [options.socketOptions.keepAliveInitialDelay=30000] The number of milliseconds to wait before initiating keepAlive on the TCP socket
- * @param {number} [options.socketOptions.connectTimeoutMS=10000] How long to wait for a connection to be established before timing out
- * @param {number} [options.socketOptions.socketTimeoutMS=360000] How long a send or receive on a socket can take before timing out
+ * @param {number} [options.socketOptions.connectTimeoutMS=0] TCP Connection timeout setting
+ * @param {number} [options.socketOptions.socketTimeoutMS=0] TCP Socket timeout setting
  * @param {boolean} [options.domainsEnabled=false] Enable the wrapping of the callback in the current domain, disabled by default to avoid perf hit.
  * @param {boolean} [options.monitorCommands=false] Enable command monitoring for this topology
  * @fires Mongos#connect
@@ -46321,6 +42847,13 @@ class Mongos extends TopologyBase {
     // Translate all the options to the core types
     clonedOptions = translateOptions(clonedOptions, socketOptions);
 
+    // Build default client information
+    clonedOptions.clientInfo = this.clientInfo;
+    // Do we have an application specific string
+    if (options.appname) {
+      clonedOptions.clientInfo.application = { name: options.appname };
+    }
+
     // Internal state
     this.s = {
       // Create the Mongos
@@ -46340,7 +42873,7 @@ class Mongos extends TopologyBase {
       // Server Session Pool
       sessionPool: null,
       // Active client sessions
-      sessions: new Set(),
+      sessions: [],
       // Promise library
       promiseLibrary: options.promiseLibrary || Promise
     };
@@ -46625,8 +43158,7 @@ class NativeTopology extends Topology {
         cursorFactory: Cursor,
         reconnect: false,
         emitError: typeof options.emitError === 'boolean' ? options.emitError : true,
-        maxPoolSize: typeof options.poolSize === 'number' ? options.poolSize : 5,
-        minPoolSize: typeof options.minSize === 'number' ? options.minSize : 0,
+        size: typeof options.poolSize === 'number' ? options.poolSize : 5,
         monitorCommands:
           typeof options.monitorCommands === 'boolean' ? options.monitorCommands : false
       }
@@ -46645,6 +43177,11 @@ class NativeTopology extends Topology {
     clonedOptions = translateOptions(clonedOptions, socketOptions);
 
     super(servers, clonedOptions);
+
+    // Do we have an application specific string
+    if (options.appname) {
+      this.s.clientInfo.application = { name: options.appname };
+    }
   }
 
   capabilities() {
@@ -46783,8 +43320,8 @@ var legalOptionNames = [
  * @param {boolean} [options.socketOptions.noDelay=true] TCP Socket NoDelay option.
  * @param {boolean} [options.socketOptions.keepAlive=true] TCP Connection keep alive enabled
  * @param {number} [options.socketOptions.keepAliveInitialDelay=30000] The number of milliseconds to wait before initiating keepAlive on the TCP socket
- * @param {number} [options.socketOptions.connectTimeoutMS=10000] How long to wait for a connection to be established before timing out
- * @param {number} [options.socketOptions.socketTimeoutMS=360000] How long a send or receive on a socket can take before timing out
+ * @param {number} [options.socketOptions.connectTimeoutMS=10000] TCP Connection timeout setting
+ * @param {number} [options.socketOptions.socketTimeoutMS=0] TCP Socket timeout setting
  * @param {boolean} [options.domainsEnabled=false] Enable the wrapping of the callback in the current domain, disabled by default to avoid perf hit.
  * @param {number} [options.maxStalenessSeconds=undefined] The max staleness to secondary reads (values under 10 seconds cannot be guaranteed);
  * @param {boolean} [options.monitorCommands=false] Enable command monitoring for this topology
@@ -46865,6 +43402,13 @@ class ReplSet extends TopologyBase {
     // Translate all the options to the core types
     clonedOptions = translateOptions(clonedOptions, socketOptions);
 
+    // Build default client information
+    clonedOptions.clientInfo = this.clientInfo;
+    // Do we have an application specific string
+    if (options.appname) {
+      clonedOptions.clientInfo.application = { name: options.appname };
+    }
+
     // Create the ReplSet
     var coreTopology = new CReplSet(seedlist, clonedOptions);
 
@@ -46893,7 +43437,7 @@ class ReplSet extends TopologyBase {
       // Server Session Pool
       sessionPool: null,
       // Active client sessions
-      sessions: new Set(),
+      sessions: [],
       // Promise library
       promiseLibrary: options.promiseLibrary || Promise
     };
@@ -47276,8 +43820,8 @@ var legalOptionNames = [
  * @param {boolean} [options.socketOptions.noDelay=true] TCP Socket NoDelay option.
  * @param {boolean} [options.socketOptions.keepAlive=true] TCP Connection keep alive enabled
  * @param {number} [options.socketOptions.keepAliveInitialDelay=30000] The number of milliseconds to wait before initiating keepAlive on the TCP socket
- * @param {number} [options.socketOptions.connectTimeoutMS=10000] How long to wait for a connection to be established before timing out
- * @param {number} [options.socketOptions.socketTimeoutMS=360000] How long a send or receive on a socket can take before timing out
+ * @param {number} [options.socketOptions.connectTimeoutMS=0] TCP Connection timeout setting
+ * @param {number} [options.socketOptions.socketTimeoutMS=0] TCP Socket timeout setting
  * @param {number} [options.reconnectTries=30] Server attempt to reconnect #times
  * @param {number} [options.reconnectInterval=1000] Server will wait # milliseconds between retries
  * @param {boolean} [options.monitoring=true] Triggers the server instance to call ismaster
@@ -47359,6 +43903,13 @@ class Server extends TopologyBase {
     // Translate all the options to the core types
     clonedOptions = translateOptions(clonedOptions, socketOptions);
 
+    // Build default client information
+    clonedOptions.clientInfo = this.clientInfo;
+    // Do we have an application specific string
+    if (options.appname) {
+      clonedOptions.clientInfo.application = { name: options.appname };
+    }
+
     // Define the internal properties
     this.s = {
       // Create an instance of a server instance from core module
@@ -47386,7 +43937,7 @@ class Server extends TopologyBase {
       // Server Session Pool
       sessionPool: null,
       // Active client sessions
-      sessions: new Set(),
+      sessions: [],
       // Promise library
       promiseLibrary: promiseLibrary || Promise
     };
@@ -47654,6 +44205,7 @@ module.exports = Server;
 const EventEmitter = __webpack_require__(/*! events */ "events"),
   MongoError = __webpack_require__(/*! ../core */ "./node_modules/mongodb/lib/core/index.js").MongoError,
   f = __webpack_require__(/*! util */ "util").format,
+  os = __webpack_require__(/*! os */ "os"),
   translateReadPreference = __webpack_require__(/*! ../utils */ "./node_modules/mongodb/lib/utils.js").translateReadPreference,
   ClientSession = __webpack_require__(/*! ../core */ "./node_modules/mongodb/lib/core/index.js").Sessions.ClientSession;
 
@@ -47904,9 +44456,33 @@ var ServerCapabilities = function(ismaster) {
   setup_get_property(this, 'commandsTakeCollation', commandsTakeCollation);
 };
 
+// Get package.json variable
+const driverVersion = __webpack_require__(/*! ../../package.json */ "./node_modules/mongodb/package.json").version,
+  nodejsversion = f('Node.js %s, %s', process.version, os.endianness()),
+  type = os.type(),
+  name = process.platform,
+  architecture = process.arch,
+  release = os.release();
+
 class TopologyBase extends EventEmitter {
   constructor() {
     super();
+
+    // Build default client information
+    this.clientInfo = {
+      driver: {
+        name: 'nodejs',
+        version: driverVersion
+      },
+      os: {
+        type: type,
+        name: name,
+        architecture: architecture,
+        version: release
+      },
+      platform: nodejsversion
+    };
+
     this.setMaxListeners(Infinity);
   }
 
@@ -47917,21 +44493,16 @@ class TopologyBase extends EventEmitter {
 
   startSession(options, clientOptions) {
     const session = new ClientSession(this, this.s.sessionPool, options, clientOptions);
-
     session.once('ended', () => {
-      this.s.sessions.delete(session);
+      this.s.sessions = this.s.sessions.filter(s => !s.equals(session));
     });
 
-    this.s.sessions.add(session);
+    this.s.sessions.push(session);
     return session;
   }
 
   endSessions(sessions, callback) {
     return this.s.coreTopology.endSessions(sessions, callback);
-  }
-
-  get clientMetadata() {
-    return this.s.coreTopology.s.options.metadata;
   }
 
   // Server capabilities
@@ -48013,7 +44584,9 @@ class TopologyBase extends EventEmitter {
   close(forceClosed, callback) {
     // If we have sessions, we want to individually move them to the session pool,
     // and then send a single endSessions call.
-    this.s.sessions.forEach(session => session.endSession());
+    if (this.s.sessions.length) {
+      this.s.sessions.forEach(session => session.endSession());
+    }
 
     if (this.s.sessionPool) {
       this.s.sessionPool.endAllPooledSessions();
@@ -48714,6 +45287,7 @@ function parseConnectionString(url, options) {
 
 "use strict";
 
+
 const MongoError = __webpack_require__(/*! ./core/error */ "./node_modules/mongodb/lib/core/error.js").MongoError;
 const ReadPreference = __webpack_require__(/*! ./core/topologies/read_preference */ "./node_modules/mongodb/lib/core/topologies/read_preference.js");
 const WriteConcern = __webpack_require__(/*! ./write_concern */ "./node_modules/mongodb/lib/write_concern.js");
@@ -49399,56 +45973,6 @@ class MongoDBNamespace {
   }
 }
 
-function* makeCounter(seed) {
-  let count = seed || 0;
-  while (true) {
-    const newCount = count;
-    count += 1;
-    yield newCount;
-  }
-}
-
-/**
- * Helper function for either accepting a callback, or returning a promise
- *
- * @param {Object} parent an instance of parent with promiseLibrary.
- * @param {object} parent.s an object containing promiseLibrary.
- * @param {function} parent.s.promiseLibrary an object containing promiseLibrary.
- * @param {[Function]} callback an optional callback.
- * @param {Function} fn A function that takes a callback
- * @returns {Promise|void} Returns nothing if a callback is supplied, else returns a Promise.
- */
-function maybePromise(parent, callback, fn) {
-  const PromiseLibrary = (parent && parent.s && parent.s.promiseLibrary) || Promise;
-
-  let result;
-  if (typeof callback !== 'function') {
-    result = new PromiseLibrary((resolve, reject) => {
-      callback = (err, res) => {
-        if (err) return reject(err);
-        resolve(res);
-      };
-    });
-  }
-
-  fn(function(err, res) {
-    if (err != null) {
-      try {
-        callback(err);
-      } catch (error) {
-        return process.nextTick(() => {
-          throw error;
-        });
-      }
-      return;
-    }
-
-    callback(err, res);
-  });
-
-  return result;
-}
-
 module.exports = {
   filterOptions,
   mergeOptions,
@@ -49476,10 +46000,7 @@ module.exports = {
   deprecateOptions,
   SUPPORTS,
   MongoDBNamespace,
-  resolveReadPreference,
-  emitDeprecationWarning,
-  makeCounter,
-  maybePromise
+  resolveReadPreference
 };
 
 
@@ -49567,2436 +46088,10 @@ module.exports = WriteConcern;
 /*!*******************************************!*\
   !*** ./node_modules/mongodb/package.json ***!
   \*******************************************/
-/*! exports provided: _from, _id, _inBundle, _integrity, _location, _phantomChildren, _requested, _requiredBy, _resolved, _shasum, _spec, _where, bugs, bundleDependencies, dependencies, deprecated, description, devDependencies, engines, files, homepage, keywords, license, main, name, optionalDependencies, peerOptionalDependencies, repository, scripts, version, default */
+/*! exports provided: _from, _id, _inBundle, _integrity, _location, _phantomChildren, _requested, _requiredBy, _resolved, _shasum, _spec, _where, bugs, bundleDependencies, dependencies, deprecated, description, devDependencies, engines, files, homepage, keywords, license, main, name, peerOptionalDependencies, repository, scripts, version, default */
 /***/ (function(module) {
 
-module.exports = JSON.parse("{\"_from\":\"mongodb@^3.2.3\",\"_id\":\"mongodb@3.5.5\",\"_inBundle\":false,\"_integrity\":\"sha512-GCjDxR3UOltDq00Zcpzql6dQo1sVry60OXJY3TDmFc2SWFY6c8Gn1Ardidc5jDirvJrx2GC3knGOImKphbSL3A==\",\"_location\":\"/mongodb\",\"_phantomChildren\":{},\"_requested\":{\"type\":\"range\",\"registry\":true,\"raw\":\"mongodb@^3.2.3\",\"name\":\"mongodb\",\"escapedName\":\"mongodb\",\"rawSpec\":\"^3.2.3\",\"saveSpec\":null,\"fetchSpec\":\"^3.2.3\"},\"_requiredBy\":[\"#USER\",\"/\"],\"_resolved\":\"https://registry.npmjs.org/mongodb/-/mongodb-3.5.5.tgz\",\"_shasum\":\"1334c3e5a384469ac7ef0dea69d59acc829a496a\",\"_spec\":\"mongodb@^3.2.3\",\"_where\":\"/Users/terry/Projects/dbmongo\",\"bugs\":{\"url\":\"https://github.com/mongodb/node-mongodb-native/issues\"},\"bundleDependencies\":false,\"dependencies\":{\"bl\":\"^2.2.0\",\"bson\":\"^1.1.1\",\"denque\":\"^1.4.1\",\"require_optional\":\"^1.0.1\",\"safe-buffer\":\"^5.1.2\",\"saslprep\":\"^1.0.0\"},\"deprecated\":false,\"description\":\"The official MongoDB driver for Node.js\",\"devDependencies\":{\"chai\":\"^4.1.1\",\"chai-subset\":\"^1.6.0\",\"chalk\":\"^2.4.2\",\"co\":\"4.6.0\",\"coveralls\":\"^2.11.6\",\"eslint\":\"^4.5.0\",\"eslint-plugin-prettier\":\"^2.2.0\",\"istanbul\":\"^0.4.5\",\"jsdoc\":\"3.5.5\",\"lodash.camelcase\":\"^4.3.0\",\"mocha\":\"5.2.0\",\"mocha-sinon\":\"^2.1.0\",\"mongodb-extjson\":\"^2.1.1\",\"mongodb-mock-server\":\"^1.0.1\",\"prettier\":\"^1.19.1\",\"semver\":\"^5.5.0\",\"sinon\":\"^4.3.0\",\"sinon-chai\":\"^3.2.0\",\"snappy\":\"^6.1.2\",\"standard-version\":\"^4.4.0\",\"worker-farm\":\"^1.5.0\",\"wtfnode\":\"^0.8.0\",\"yargs\":\"^14.2.0\"},\"engines\":{\"node\":\">=4\"},\"files\":[\"index.js\",\"lib\"],\"homepage\":\"https://github.com/mongodb/node-mongodb-native\",\"keywords\":[\"mongodb\",\"driver\",\"official\"],\"license\":\"Apache-2.0\",\"main\":\"index.js\",\"name\":\"mongodb\",\"optionalDependencies\":{\"saslprep\":\"^1.0.0\"},\"peerOptionalDependencies\":{\"kerberos\":\"^1.1.0\",\"mongodb-client-encryption\":\"^1.0.0\",\"mongodb-extjson\":\"^2.1.2\",\"snappy\":\"^6.1.1\",\"bson-ext\":\"^2.0.0\"},\"repository\":{\"type\":\"git\",\"url\":\"git+ssh://git@github.com/mongodb/node-mongodb-native.git\"},\"scripts\":{\"atlas\":\"node ./test/tools/atlas_connectivity_tests.js\",\"bench\":\"node test/benchmarks/driverBench/\",\"coverage\":\"istanbul cover mongodb-test-runner -- -t 60000 test/core test/unit test/functional\",\"format\":\"prettier --print-width 100 --tab-width 2 --single-quote --write 'test/**/*.js' 'lib/**/*.js'\",\"generate-evergreen\":\"node .evergreen/generate_evergreen_tasks.js\",\"lint\":\"eslint lib test\",\"release\":\"standard-version -i HISTORY.md\",\"test\":\"npm run lint && mocha --recursive test/functional test/unit test/core\",\"test-nolint\":\"mocha --recursive test/functional test/unit test/core\"},\"version\":\"3.5.5\"}");
-
-/***/ }),
-
-/***/ "./node_modules/process-nextick-args/index.js":
-/*!****************************************************!*\
-  !*** ./node_modules/process-nextick-args/index.js ***!
-  \****************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-if (!process.version ||
-    process.version.indexOf('v0.') === 0 ||
-    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
-  module.exports = { nextTick: nextTick };
-} else {
-  module.exports = process
-}
-
-function nextTick(fn, arg1, arg2, arg3) {
-  if (typeof fn !== 'function') {
-    throw new TypeError('"callback" argument must be a function');
-  }
-  var len = arguments.length;
-  var args, i;
-  switch (len) {
-  case 0:
-  case 1:
-    return process.nextTick(fn);
-  case 2:
-    return process.nextTick(function afterTickOne() {
-      fn.call(null, arg1);
-    });
-  case 3:
-    return process.nextTick(function afterTickTwo() {
-      fn.call(null, arg1, arg2);
-    });
-  case 4:
-    return process.nextTick(function afterTickThree() {
-      fn.call(null, arg1, arg2, arg3);
-    });
-  default:
-    args = new Array(len - 1);
-    i = 0;
-    while (i < args.length) {
-      args[i++] = arguments[i];
-    }
-    return process.nextTick(function afterTick() {
-      fn.apply(null, args);
-    });
-  }
-}
-
-
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/_stream_duplex.js":
-/*!************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/_stream_duplex.js ***!
-  \************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// a duplex stream is just a stream that is both readable and writable.
-// Since JS doesn't have multiple prototypal inheritance, this class
-// prototypally inherits from Readable, and then parasitically from
-// Writable.
-
-
-
-/*<replacement>*/
-
-var pna = __webpack_require__(/*! process-nextick-args */ "./node_modules/process-nextick-args/index.js");
-/*</replacement>*/
-
-/*<replacement>*/
-var objectKeys = Object.keys || function (obj) {
-  var keys = [];
-  for (var key in obj) {
-    keys.push(key);
-  }return keys;
-};
-/*</replacement>*/
-
-module.exports = Duplex;
-
-/*<replacement>*/
-var util = __webpack_require__(/*! core-util-is */ "./node_modules/core-util-is/lib/util.js");
-util.inherits = __webpack_require__(/*! inherits */ "./node_modules/inherits/inherits.js");
-/*</replacement>*/
-
-var Readable = __webpack_require__(/*! ./_stream_readable */ "./node_modules/readable-stream/lib/_stream_readable.js");
-var Writable = __webpack_require__(/*! ./_stream_writable */ "./node_modules/readable-stream/lib/_stream_writable.js");
-
-util.inherits(Duplex, Readable);
-
-{
-  // avoid scope creep, the keys array can then be collected
-  var keys = objectKeys(Writable.prototype);
-  for (var v = 0; v < keys.length; v++) {
-    var method = keys[v];
-    if (!Duplex.prototype[method]) Duplex.prototype[method] = Writable.prototype[method];
-  }
-}
-
-function Duplex(options) {
-  if (!(this instanceof Duplex)) return new Duplex(options);
-
-  Readable.call(this, options);
-  Writable.call(this, options);
-
-  if (options && options.readable === false) this.readable = false;
-
-  if (options && options.writable === false) this.writable = false;
-
-  this.allowHalfOpen = true;
-  if (options && options.allowHalfOpen === false) this.allowHalfOpen = false;
-
-  this.once('end', onend);
-}
-
-Object.defineProperty(Duplex.prototype, 'writableHighWaterMark', {
-  // making it explicit this property is not enumerable
-  // because otherwise some prototype manipulation in
-  // userland will fail
-  enumerable: false,
-  get: function () {
-    return this._writableState.highWaterMark;
-  }
-});
-
-// the no-half-open enforcer
-function onend() {
-  // if we allow half-open state, or if the writable side ended,
-  // then we're ok.
-  if (this.allowHalfOpen || this._writableState.ended) return;
-
-  // no more data can be written.
-  // But allow more writes to happen in this tick.
-  pna.nextTick(onEndNT, this);
-}
-
-function onEndNT(self) {
-  self.end();
-}
-
-Object.defineProperty(Duplex.prototype, 'destroyed', {
-  get: function () {
-    if (this._readableState === undefined || this._writableState === undefined) {
-      return false;
-    }
-    return this._readableState.destroyed && this._writableState.destroyed;
-  },
-  set: function (value) {
-    // we ignore the value if the stream
-    // has not been initialized yet
-    if (this._readableState === undefined || this._writableState === undefined) {
-      return;
-    }
-
-    // backward compatibility, the user is explicitly
-    // managing destroyed
-    this._readableState.destroyed = value;
-    this._writableState.destroyed = value;
-  }
-});
-
-Duplex.prototype._destroy = function (err, cb) {
-  this.push(null);
-  this.end();
-
-  pna.nextTick(cb, err);
-};
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/_stream_passthrough.js":
-/*!*****************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/_stream_passthrough.js ***!
-  \*****************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// a passthrough stream.
-// basically just the most minimal sort of Transform stream.
-// Every written chunk gets output as-is.
-
-
-
-module.exports = PassThrough;
-
-var Transform = __webpack_require__(/*! ./_stream_transform */ "./node_modules/readable-stream/lib/_stream_transform.js");
-
-/*<replacement>*/
-var util = __webpack_require__(/*! core-util-is */ "./node_modules/core-util-is/lib/util.js");
-util.inherits = __webpack_require__(/*! inherits */ "./node_modules/inherits/inherits.js");
-/*</replacement>*/
-
-util.inherits(PassThrough, Transform);
-
-function PassThrough(options) {
-  if (!(this instanceof PassThrough)) return new PassThrough(options);
-
-  Transform.call(this, options);
-}
-
-PassThrough.prototype._transform = function (chunk, encoding, cb) {
-  cb(null, chunk);
-};
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/_stream_readable.js":
-/*!**************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/_stream_readable.js ***!
-  \**************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-
-/*<replacement>*/
-
-var pna = __webpack_require__(/*! process-nextick-args */ "./node_modules/process-nextick-args/index.js");
-/*</replacement>*/
-
-module.exports = Readable;
-
-/*<replacement>*/
-var isArray = __webpack_require__(/*! isarray */ "./node_modules/isarray/index.js");
-/*</replacement>*/
-
-/*<replacement>*/
-var Duplex;
-/*</replacement>*/
-
-Readable.ReadableState = ReadableState;
-
-/*<replacement>*/
-var EE = __webpack_require__(/*! events */ "events").EventEmitter;
-
-var EElistenerCount = function (emitter, type) {
-  return emitter.listeners(type).length;
-};
-/*</replacement>*/
-
-/*<replacement>*/
-var Stream = __webpack_require__(/*! ./internal/streams/stream */ "./node_modules/readable-stream/lib/internal/streams/stream.js");
-/*</replacement>*/
-
-/*<replacement>*/
-
-var Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer;
-var OurUint8Array = global.Uint8Array || function () {};
-function _uint8ArrayToBuffer(chunk) {
-  return Buffer.from(chunk);
-}
-function _isUint8Array(obj) {
-  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
-}
-
-/*</replacement>*/
-
-/*<replacement>*/
-var util = __webpack_require__(/*! core-util-is */ "./node_modules/core-util-is/lib/util.js");
-util.inherits = __webpack_require__(/*! inherits */ "./node_modules/inherits/inherits.js");
-/*</replacement>*/
-
-/*<replacement>*/
-var debugUtil = __webpack_require__(/*! util */ "util");
-var debug = void 0;
-if (debugUtil && debugUtil.debuglog) {
-  debug = debugUtil.debuglog('stream');
-} else {
-  debug = function () {};
-}
-/*</replacement>*/
-
-var BufferList = __webpack_require__(/*! ./internal/streams/BufferList */ "./node_modules/readable-stream/lib/internal/streams/BufferList.js");
-var destroyImpl = __webpack_require__(/*! ./internal/streams/destroy */ "./node_modules/readable-stream/lib/internal/streams/destroy.js");
-var StringDecoder;
-
-util.inherits(Readable, Stream);
-
-var kProxyEvents = ['error', 'close', 'destroy', 'pause', 'resume'];
-
-function prependListener(emitter, event, fn) {
-  // Sadly this is not cacheable as some libraries bundle their own
-  // event emitter implementation with them.
-  if (typeof emitter.prependListener === 'function') return emitter.prependListener(event, fn);
-
-  // This is a hack to make sure that our error handler is attached before any
-  // userland ones.  NEVER DO THIS. This is here only because this code needs
-  // to continue to work with older versions of Node.js that do not include
-  // the prependListener() method. The goal is to eventually remove this hack.
-  if (!emitter._events || !emitter._events[event]) emitter.on(event, fn);else if (isArray(emitter._events[event])) emitter._events[event].unshift(fn);else emitter._events[event] = [fn, emitter._events[event]];
-}
-
-function ReadableState(options, stream) {
-  Duplex = Duplex || __webpack_require__(/*! ./_stream_duplex */ "./node_modules/readable-stream/lib/_stream_duplex.js");
-
-  options = options || {};
-
-  // Duplex streams are both readable and writable, but share
-  // the same options object.
-  // However, some cases require setting options to different
-  // values for the readable and the writable sides of the duplex stream.
-  // These options can be provided separately as readableXXX and writableXXX.
-  var isDuplex = stream instanceof Duplex;
-
-  // object stream flag. Used to make read(n) ignore n and to
-  // make all the buffer merging and length checks go away
-  this.objectMode = !!options.objectMode;
-
-  if (isDuplex) this.objectMode = this.objectMode || !!options.readableObjectMode;
-
-  // the point at which it stops calling _read() to fill the buffer
-  // Note: 0 is a valid value, means "don't call _read preemptively ever"
-  var hwm = options.highWaterMark;
-  var readableHwm = options.readableHighWaterMark;
-  var defaultHwm = this.objectMode ? 16 : 16 * 1024;
-
-  if (hwm || hwm === 0) this.highWaterMark = hwm;else if (isDuplex && (readableHwm || readableHwm === 0)) this.highWaterMark = readableHwm;else this.highWaterMark = defaultHwm;
-
-  // cast to ints.
-  this.highWaterMark = Math.floor(this.highWaterMark);
-
-  // A linked list is used to store data chunks instead of an array because the
-  // linked list can remove elements from the beginning faster than
-  // array.shift()
-  this.buffer = new BufferList();
-  this.length = 0;
-  this.pipes = null;
-  this.pipesCount = 0;
-  this.flowing = null;
-  this.ended = false;
-  this.endEmitted = false;
-  this.reading = false;
-
-  // a flag to be able to tell if the event 'readable'/'data' is emitted
-  // immediately, or on a later tick.  We set this to true at first, because
-  // any actions that shouldn't happen until "later" should generally also
-  // not happen before the first read call.
-  this.sync = true;
-
-  // whenever we return null, then we set a flag to say
-  // that we're awaiting a 'readable' event emission.
-  this.needReadable = false;
-  this.emittedReadable = false;
-  this.readableListening = false;
-  this.resumeScheduled = false;
-
-  // has it been destroyed
-  this.destroyed = false;
-
-  // Crypto is kind of old and crusty.  Historically, its default string
-  // encoding is 'binary' so we have to make this configurable.
-  // Everything else in the universe uses 'utf8', though.
-  this.defaultEncoding = options.defaultEncoding || 'utf8';
-
-  // the number of writers that are awaiting a drain event in .pipe()s
-  this.awaitDrain = 0;
-
-  // if true, a maybeReadMore has been scheduled
-  this.readingMore = false;
-
-  this.decoder = null;
-  this.encoding = null;
-  if (options.encoding) {
-    if (!StringDecoder) StringDecoder = __webpack_require__(/*! string_decoder/ */ "./node_modules/string_decoder/lib/string_decoder.js").StringDecoder;
-    this.decoder = new StringDecoder(options.encoding);
-    this.encoding = options.encoding;
-  }
-}
-
-function Readable(options) {
-  Duplex = Duplex || __webpack_require__(/*! ./_stream_duplex */ "./node_modules/readable-stream/lib/_stream_duplex.js");
-
-  if (!(this instanceof Readable)) return new Readable(options);
-
-  this._readableState = new ReadableState(options, this);
-
-  // legacy
-  this.readable = true;
-
-  if (options) {
-    if (typeof options.read === 'function') this._read = options.read;
-
-    if (typeof options.destroy === 'function') this._destroy = options.destroy;
-  }
-
-  Stream.call(this);
-}
-
-Object.defineProperty(Readable.prototype, 'destroyed', {
-  get: function () {
-    if (this._readableState === undefined) {
-      return false;
-    }
-    return this._readableState.destroyed;
-  },
-  set: function (value) {
-    // we ignore the value if the stream
-    // has not been initialized yet
-    if (!this._readableState) {
-      return;
-    }
-
-    // backward compatibility, the user is explicitly
-    // managing destroyed
-    this._readableState.destroyed = value;
-  }
-});
-
-Readable.prototype.destroy = destroyImpl.destroy;
-Readable.prototype._undestroy = destroyImpl.undestroy;
-Readable.prototype._destroy = function (err, cb) {
-  this.push(null);
-  cb(err);
-};
-
-// Manually shove something into the read() buffer.
-// This returns true if the highWaterMark has not been hit yet,
-// similar to how Writable.write() returns true if you should
-// write() some more.
-Readable.prototype.push = function (chunk, encoding) {
-  var state = this._readableState;
-  var skipChunkCheck;
-
-  if (!state.objectMode) {
-    if (typeof chunk === 'string') {
-      encoding = encoding || state.defaultEncoding;
-      if (encoding !== state.encoding) {
-        chunk = Buffer.from(chunk, encoding);
-        encoding = '';
-      }
-      skipChunkCheck = true;
-    }
-  } else {
-    skipChunkCheck = true;
-  }
-
-  return readableAddChunk(this, chunk, encoding, false, skipChunkCheck);
-};
-
-// Unshift should *always* be something directly out of read()
-Readable.prototype.unshift = function (chunk) {
-  return readableAddChunk(this, chunk, null, true, false);
-};
-
-function readableAddChunk(stream, chunk, encoding, addToFront, skipChunkCheck) {
-  var state = stream._readableState;
-  if (chunk === null) {
-    state.reading = false;
-    onEofChunk(stream, state);
-  } else {
-    var er;
-    if (!skipChunkCheck) er = chunkInvalid(state, chunk);
-    if (er) {
-      stream.emit('error', er);
-    } else if (state.objectMode || chunk && chunk.length > 0) {
-      if (typeof chunk !== 'string' && !state.objectMode && Object.getPrototypeOf(chunk) !== Buffer.prototype) {
-        chunk = _uint8ArrayToBuffer(chunk);
-      }
-
-      if (addToFront) {
-        if (state.endEmitted) stream.emit('error', new Error('stream.unshift() after end event'));else addChunk(stream, state, chunk, true);
-      } else if (state.ended) {
-        stream.emit('error', new Error('stream.push() after EOF'));
-      } else {
-        state.reading = false;
-        if (state.decoder && !encoding) {
-          chunk = state.decoder.write(chunk);
-          if (state.objectMode || chunk.length !== 0) addChunk(stream, state, chunk, false);else maybeReadMore(stream, state);
-        } else {
-          addChunk(stream, state, chunk, false);
-        }
-      }
-    } else if (!addToFront) {
-      state.reading = false;
-    }
-  }
-
-  return needMoreData(state);
-}
-
-function addChunk(stream, state, chunk, addToFront) {
-  if (state.flowing && state.length === 0 && !state.sync) {
-    stream.emit('data', chunk);
-    stream.read(0);
-  } else {
-    // update the buffer info.
-    state.length += state.objectMode ? 1 : chunk.length;
-    if (addToFront) state.buffer.unshift(chunk);else state.buffer.push(chunk);
-
-    if (state.needReadable) emitReadable(stream);
-  }
-  maybeReadMore(stream, state);
-}
-
-function chunkInvalid(state, chunk) {
-  var er;
-  if (!_isUint8Array(chunk) && typeof chunk !== 'string' && chunk !== undefined && !state.objectMode) {
-    er = new TypeError('Invalid non-string/buffer chunk');
-  }
-  return er;
-}
-
-// if it's past the high water mark, we can push in some more.
-// Also, if we have no data yet, we can stand some
-// more bytes.  This is to work around cases where hwm=0,
-// such as the repl.  Also, if the push() triggered a
-// readable event, and the user called read(largeNumber) such that
-// needReadable was set, then we ought to push more, so that another
-// 'readable' event will be triggered.
-function needMoreData(state) {
-  return !state.ended && (state.needReadable || state.length < state.highWaterMark || state.length === 0);
-}
-
-Readable.prototype.isPaused = function () {
-  return this._readableState.flowing === false;
-};
-
-// backwards compatibility.
-Readable.prototype.setEncoding = function (enc) {
-  if (!StringDecoder) StringDecoder = __webpack_require__(/*! string_decoder/ */ "./node_modules/string_decoder/lib/string_decoder.js").StringDecoder;
-  this._readableState.decoder = new StringDecoder(enc);
-  this._readableState.encoding = enc;
-  return this;
-};
-
-// Don't raise the hwm > 8MB
-var MAX_HWM = 0x800000;
-function computeNewHighWaterMark(n) {
-  if (n >= MAX_HWM) {
-    n = MAX_HWM;
-  } else {
-    // Get the next highest power of 2 to prevent increasing hwm excessively in
-    // tiny amounts
-    n--;
-    n |= n >>> 1;
-    n |= n >>> 2;
-    n |= n >>> 4;
-    n |= n >>> 8;
-    n |= n >>> 16;
-    n++;
-  }
-  return n;
-}
-
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function howMuchToRead(n, state) {
-  if (n <= 0 || state.length === 0 && state.ended) return 0;
-  if (state.objectMode) return 1;
-  if (n !== n) {
-    // Only flow one buffer at a time
-    if (state.flowing && state.length) return state.buffer.head.data.length;else return state.length;
-  }
-  // If we're asking for more than the current hwm, then raise the hwm.
-  if (n > state.highWaterMark) state.highWaterMark = computeNewHighWaterMark(n);
-  if (n <= state.length) return n;
-  // Don't have enough
-  if (!state.ended) {
-    state.needReadable = true;
-    return 0;
-  }
-  return state.length;
-}
-
-// you can override either this method, or the async _read(n) below.
-Readable.prototype.read = function (n) {
-  debug('read', n);
-  n = parseInt(n, 10);
-  var state = this._readableState;
-  var nOrig = n;
-
-  if (n !== 0) state.emittedReadable = false;
-
-  // if we're doing read(0) to trigger a readable event, but we
-  // already have a bunch of data in the buffer, then just trigger
-  // the 'readable' event and move on.
-  if (n === 0 && state.needReadable && (state.length >= state.highWaterMark || state.ended)) {
-    debug('read: emitReadable', state.length, state.ended);
-    if (state.length === 0 && state.ended) endReadable(this);else emitReadable(this);
-    return null;
-  }
-
-  n = howMuchToRead(n, state);
-
-  // if we've ended, and we're now clear, then finish it up.
-  if (n === 0 && state.ended) {
-    if (state.length === 0) endReadable(this);
-    return null;
-  }
-
-  // All the actual chunk generation logic needs to be
-  // *below* the call to _read.  The reason is that in certain
-  // synthetic stream cases, such as passthrough streams, _read
-  // may be a completely synchronous operation which may change
-  // the state of the read buffer, providing enough data when
-  // before there was *not* enough.
-  //
-  // So, the steps are:
-  // 1. Figure out what the state of things will be after we do
-  // a read from the buffer.
-  //
-  // 2. If that resulting state will trigger a _read, then call _read.
-  // Note that this may be asynchronous, or synchronous.  Yes, it is
-  // deeply ugly to write APIs this way, but that still doesn't mean
-  // that the Readable class should behave improperly, as streams are
-  // designed to be sync/async agnostic.
-  // Take note if the _read call is sync or async (ie, if the read call
-  // has returned yet), so that we know whether or not it's safe to emit
-  // 'readable' etc.
-  //
-  // 3. Actually pull the requested chunks out of the buffer and return.
-
-  // if we need a readable event, then we need to do some reading.
-  var doRead = state.needReadable;
-  debug('need readable', doRead);
-
-  // if we currently have less than the highWaterMark, then also read some
-  if (state.length === 0 || state.length - n < state.highWaterMark) {
-    doRead = true;
-    debug('length less than watermark', doRead);
-  }
-
-  // however, if we've ended, then there's no point, and if we're already
-  // reading, then it's unnecessary.
-  if (state.ended || state.reading) {
-    doRead = false;
-    debug('reading or ended', doRead);
-  } else if (doRead) {
-    debug('do read');
-    state.reading = true;
-    state.sync = true;
-    // if the length is currently zero, then we *need* a readable event.
-    if (state.length === 0) state.needReadable = true;
-    // call internal read method
-    this._read(state.highWaterMark);
-    state.sync = false;
-    // If _read pushed data synchronously, then `reading` will be false,
-    // and we need to re-evaluate how much data we can return to the user.
-    if (!state.reading) n = howMuchToRead(nOrig, state);
-  }
-
-  var ret;
-  if (n > 0) ret = fromList(n, state);else ret = null;
-
-  if (ret === null) {
-    state.needReadable = true;
-    n = 0;
-  } else {
-    state.length -= n;
-  }
-
-  if (state.length === 0) {
-    // If we have nothing in the buffer, then we want to know
-    // as soon as we *do* get something into the buffer.
-    if (!state.ended) state.needReadable = true;
-
-    // If we tried to read() past the EOF, then emit end on the next tick.
-    if (nOrig !== n && state.ended) endReadable(this);
-  }
-
-  if (ret !== null) this.emit('data', ret);
-
-  return ret;
-};
-
-function onEofChunk(stream, state) {
-  if (state.ended) return;
-  if (state.decoder) {
-    var chunk = state.decoder.end();
-    if (chunk && chunk.length) {
-      state.buffer.push(chunk);
-      state.length += state.objectMode ? 1 : chunk.length;
-    }
-  }
-  state.ended = true;
-
-  // emit 'readable' now to make sure it gets picked up.
-  emitReadable(stream);
-}
-
-// Don't emit readable right away in sync mode, because this can trigger
-// another read() call => stack overflow.  This way, it might trigger
-// a nextTick recursion warning, but that's not so bad.
-function emitReadable(stream) {
-  var state = stream._readableState;
-  state.needReadable = false;
-  if (!state.emittedReadable) {
-    debug('emitReadable', state.flowing);
-    state.emittedReadable = true;
-    if (state.sync) pna.nextTick(emitReadable_, stream);else emitReadable_(stream);
-  }
-}
-
-function emitReadable_(stream) {
-  debug('emit readable');
-  stream.emit('readable');
-  flow(stream);
-}
-
-// at this point, the user has presumably seen the 'readable' event,
-// and called read() to consume some data.  that may have triggered
-// in turn another _read(n) call, in which case reading = true if
-// it's in progress.
-// However, if we're not ended, or reading, and the length < hwm,
-// then go ahead and try to read some more preemptively.
-function maybeReadMore(stream, state) {
-  if (!state.readingMore) {
-    state.readingMore = true;
-    pna.nextTick(maybeReadMore_, stream, state);
-  }
-}
-
-function maybeReadMore_(stream, state) {
-  var len = state.length;
-  while (!state.reading && !state.flowing && !state.ended && state.length < state.highWaterMark) {
-    debug('maybeReadMore read 0');
-    stream.read(0);
-    if (len === state.length)
-      // didn't get any data, stop spinning.
-      break;else len = state.length;
-  }
-  state.readingMore = false;
-}
-
-// abstract method.  to be overridden in specific implementation classes.
-// call cb(er, data) where data is <= n in length.
-// for virtual (non-string, non-buffer) streams, "length" is somewhat
-// arbitrary, and perhaps not very meaningful.
-Readable.prototype._read = function (n) {
-  this.emit('error', new Error('_read() is not implemented'));
-};
-
-Readable.prototype.pipe = function (dest, pipeOpts) {
-  var src = this;
-  var state = this._readableState;
-
-  switch (state.pipesCount) {
-    case 0:
-      state.pipes = dest;
-      break;
-    case 1:
-      state.pipes = [state.pipes, dest];
-      break;
-    default:
-      state.pipes.push(dest);
-      break;
-  }
-  state.pipesCount += 1;
-  debug('pipe count=%d opts=%j', state.pipesCount, pipeOpts);
-
-  var doEnd = (!pipeOpts || pipeOpts.end !== false) && dest !== process.stdout && dest !== process.stderr;
-
-  var endFn = doEnd ? onend : unpipe;
-  if (state.endEmitted) pna.nextTick(endFn);else src.once('end', endFn);
-
-  dest.on('unpipe', onunpipe);
-  function onunpipe(readable, unpipeInfo) {
-    debug('onunpipe');
-    if (readable === src) {
-      if (unpipeInfo && unpipeInfo.hasUnpiped === false) {
-        unpipeInfo.hasUnpiped = true;
-        cleanup();
-      }
-    }
-  }
-
-  function onend() {
-    debug('onend');
-    dest.end();
-  }
-
-  // when the dest drains, it reduces the awaitDrain counter
-  // on the source.  This would be more elegant with a .once()
-  // handler in flow(), but adding and removing repeatedly is
-  // too slow.
-  var ondrain = pipeOnDrain(src);
-  dest.on('drain', ondrain);
-
-  var cleanedUp = false;
-  function cleanup() {
-    debug('cleanup');
-    // cleanup event handlers once the pipe is broken
-    dest.removeListener('close', onclose);
-    dest.removeListener('finish', onfinish);
-    dest.removeListener('drain', ondrain);
-    dest.removeListener('error', onerror);
-    dest.removeListener('unpipe', onunpipe);
-    src.removeListener('end', onend);
-    src.removeListener('end', unpipe);
-    src.removeListener('data', ondata);
-
-    cleanedUp = true;
-
-    // if the reader is waiting for a drain event from this
-    // specific writer, then it would cause it to never start
-    // flowing again.
-    // So, if this is awaiting a drain, then we just call it now.
-    // If we don't know, then assume that we are waiting for one.
-    if (state.awaitDrain && (!dest._writableState || dest._writableState.needDrain)) ondrain();
-  }
-
-  // If the user pushes more data while we're writing to dest then we'll end up
-  // in ondata again. However, we only want to increase awaitDrain once because
-  // dest will only emit one 'drain' event for the multiple writes.
-  // => Introduce a guard on increasing awaitDrain.
-  var increasedAwaitDrain = false;
-  src.on('data', ondata);
-  function ondata(chunk) {
-    debug('ondata');
-    increasedAwaitDrain = false;
-    var ret = dest.write(chunk);
-    if (false === ret && !increasedAwaitDrain) {
-      // If the user unpiped during `dest.write()`, it is possible
-      // to get stuck in a permanently paused state if that write
-      // also returned false.
-      // => Check whether `dest` is still a piping destination.
-      if ((state.pipesCount === 1 && state.pipes === dest || state.pipesCount > 1 && indexOf(state.pipes, dest) !== -1) && !cleanedUp) {
-        debug('false write response, pause', src._readableState.awaitDrain);
-        src._readableState.awaitDrain++;
-        increasedAwaitDrain = true;
-      }
-      src.pause();
-    }
-  }
-
-  // if the dest has an error, then stop piping into it.
-  // however, don't suppress the throwing behavior for this.
-  function onerror(er) {
-    debug('onerror', er);
-    unpipe();
-    dest.removeListener('error', onerror);
-    if (EElistenerCount(dest, 'error') === 0) dest.emit('error', er);
-  }
-
-  // Make sure our error handler is attached before userland ones.
-  prependListener(dest, 'error', onerror);
-
-  // Both close and finish should trigger unpipe, but only once.
-  function onclose() {
-    dest.removeListener('finish', onfinish);
-    unpipe();
-  }
-  dest.once('close', onclose);
-  function onfinish() {
-    debug('onfinish');
-    dest.removeListener('close', onclose);
-    unpipe();
-  }
-  dest.once('finish', onfinish);
-
-  function unpipe() {
-    debug('unpipe');
-    src.unpipe(dest);
-  }
-
-  // tell the dest that it's being piped to
-  dest.emit('pipe', src);
-
-  // start the flow if it hasn't been started already.
-  if (!state.flowing) {
-    debug('pipe resume');
-    src.resume();
-  }
-
-  return dest;
-};
-
-function pipeOnDrain(src) {
-  return function () {
-    var state = src._readableState;
-    debug('pipeOnDrain', state.awaitDrain);
-    if (state.awaitDrain) state.awaitDrain--;
-    if (state.awaitDrain === 0 && EElistenerCount(src, 'data')) {
-      state.flowing = true;
-      flow(src);
-    }
-  };
-}
-
-Readable.prototype.unpipe = function (dest) {
-  var state = this._readableState;
-  var unpipeInfo = { hasUnpiped: false };
-
-  // if we're not piping anywhere, then do nothing.
-  if (state.pipesCount === 0) return this;
-
-  // just one destination.  most common case.
-  if (state.pipesCount === 1) {
-    // passed in one, but it's not the right one.
-    if (dest && dest !== state.pipes) return this;
-
-    if (!dest) dest = state.pipes;
-
-    // got a match.
-    state.pipes = null;
-    state.pipesCount = 0;
-    state.flowing = false;
-    if (dest) dest.emit('unpipe', this, unpipeInfo);
-    return this;
-  }
-
-  // slow case. multiple pipe destinations.
-
-  if (!dest) {
-    // remove all.
-    var dests = state.pipes;
-    var len = state.pipesCount;
-    state.pipes = null;
-    state.pipesCount = 0;
-    state.flowing = false;
-
-    for (var i = 0; i < len; i++) {
-      dests[i].emit('unpipe', this, unpipeInfo);
-    }return this;
-  }
-
-  // try to find the right one.
-  var index = indexOf(state.pipes, dest);
-  if (index === -1) return this;
-
-  state.pipes.splice(index, 1);
-  state.pipesCount -= 1;
-  if (state.pipesCount === 1) state.pipes = state.pipes[0];
-
-  dest.emit('unpipe', this, unpipeInfo);
-
-  return this;
-};
-
-// set up data events if they are asked for
-// Ensure readable listeners eventually get something
-Readable.prototype.on = function (ev, fn) {
-  var res = Stream.prototype.on.call(this, ev, fn);
-
-  if (ev === 'data') {
-    // Start flowing on next tick if stream isn't explicitly paused
-    if (this._readableState.flowing !== false) this.resume();
-  } else if (ev === 'readable') {
-    var state = this._readableState;
-    if (!state.endEmitted && !state.readableListening) {
-      state.readableListening = state.needReadable = true;
-      state.emittedReadable = false;
-      if (!state.reading) {
-        pna.nextTick(nReadingNextTick, this);
-      } else if (state.length) {
-        emitReadable(this);
-      }
-    }
-  }
-
-  return res;
-};
-Readable.prototype.addListener = Readable.prototype.on;
-
-function nReadingNextTick(self) {
-  debug('readable nexttick read 0');
-  self.read(0);
-}
-
-// pause() and resume() are remnants of the legacy readable stream API
-// If the user uses them, then switch into old mode.
-Readable.prototype.resume = function () {
-  var state = this._readableState;
-  if (!state.flowing) {
-    debug('resume');
-    state.flowing = true;
-    resume(this, state);
-  }
-  return this;
-};
-
-function resume(stream, state) {
-  if (!state.resumeScheduled) {
-    state.resumeScheduled = true;
-    pna.nextTick(resume_, stream, state);
-  }
-}
-
-function resume_(stream, state) {
-  if (!state.reading) {
-    debug('resume read 0');
-    stream.read(0);
-  }
-
-  state.resumeScheduled = false;
-  state.awaitDrain = 0;
-  stream.emit('resume');
-  flow(stream);
-  if (state.flowing && !state.reading) stream.read(0);
-}
-
-Readable.prototype.pause = function () {
-  debug('call pause flowing=%j', this._readableState.flowing);
-  if (false !== this._readableState.flowing) {
-    debug('pause');
-    this._readableState.flowing = false;
-    this.emit('pause');
-  }
-  return this;
-};
-
-function flow(stream) {
-  var state = stream._readableState;
-  debug('flow', state.flowing);
-  while (state.flowing && stream.read() !== null) {}
-}
-
-// wrap an old-style stream as the async data source.
-// This is *not* part of the readable stream interface.
-// It is an ugly unfortunate mess of history.
-Readable.prototype.wrap = function (stream) {
-  var _this = this;
-
-  var state = this._readableState;
-  var paused = false;
-
-  stream.on('end', function () {
-    debug('wrapped end');
-    if (state.decoder && !state.ended) {
-      var chunk = state.decoder.end();
-      if (chunk && chunk.length) _this.push(chunk);
-    }
-
-    _this.push(null);
-  });
-
-  stream.on('data', function (chunk) {
-    debug('wrapped data');
-    if (state.decoder) chunk = state.decoder.write(chunk);
-
-    // don't skip over falsy values in objectMode
-    if (state.objectMode && (chunk === null || chunk === undefined)) return;else if (!state.objectMode && (!chunk || !chunk.length)) return;
-
-    var ret = _this.push(chunk);
-    if (!ret) {
-      paused = true;
-      stream.pause();
-    }
-  });
-
-  // proxy all the other methods.
-  // important when wrapping filters and duplexes.
-  for (var i in stream) {
-    if (this[i] === undefined && typeof stream[i] === 'function') {
-      this[i] = function (method) {
-        return function () {
-          return stream[method].apply(stream, arguments);
-        };
-      }(i);
-    }
-  }
-
-  // proxy certain important events.
-  for (var n = 0; n < kProxyEvents.length; n++) {
-    stream.on(kProxyEvents[n], this.emit.bind(this, kProxyEvents[n]));
-  }
-
-  // when we try to consume some more bytes, simply unpause the
-  // underlying stream.
-  this._read = function (n) {
-    debug('wrapped _read', n);
-    if (paused) {
-      paused = false;
-      stream.resume();
-    }
-  };
-
-  return this;
-};
-
-Object.defineProperty(Readable.prototype, 'readableHighWaterMark', {
-  // making it explicit this property is not enumerable
-  // because otherwise some prototype manipulation in
-  // userland will fail
-  enumerable: false,
-  get: function () {
-    return this._readableState.highWaterMark;
-  }
-});
-
-// exposed for testing purposes only.
-Readable._fromList = fromList;
-
-// Pluck off n bytes from an array of buffers.
-// Length is the combined lengths of all the buffers in the list.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function fromList(n, state) {
-  // nothing buffered
-  if (state.length === 0) return null;
-
-  var ret;
-  if (state.objectMode) ret = state.buffer.shift();else if (!n || n >= state.length) {
-    // read it all, truncate the list
-    if (state.decoder) ret = state.buffer.join('');else if (state.buffer.length === 1) ret = state.buffer.head.data;else ret = state.buffer.concat(state.length);
-    state.buffer.clear();
-  } else {
-    // read part of list
-    ret = fromListPartial(n, state.buffer, state.decoder);
-  }
-
-  return ret;
-}
-
-// Extracts only enough buffered data to satisfy the amount requested.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function fromListPartial(n, list, hasStrings) {
-  var ret;
-  if (n < list.head.data.length) {
-    // slice is the same for buffers and strings
-    ret = list.head.data.slice(0, n);
-    list.head.data = list.head.data.slice(n);
-  } else if (n === list.head.data.length) {
-    // first chunk is a perfect match
-    ret = list.shift();
-  } else {
-    // result spans more than one buffer
-    ret = hasStrings ? copyFromBufferString(n, list) : copyFromBuffer(n, list);
-  }
-  return ret;
-}
-
-// Copies a specified amount of characters from the list of buffered data
-// chunks.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function copyFromBufferString(n, list) {
-  var p = list.head;
-  var c = 1;
-  var ret = p.data;
-  n -= ret.length;
-  while (p = p.next) {
-    var str = p.data;
-    var nb = n > str.length ? str.length : n;
-    if (nb === str.length) ret += str;else ret += str.slice(0, n);
-    n -= nb;
-    if (n === 0) {
-      if (nb === str.length) {
-        ++c;
-        if (p.next) list.head = p.next;else list.head = list.tail = null;
-      } else {
-        list.head = p;
-        p.data = str.slice(nb);
-      }
-      break;
-    }
-    ++c;
-  }
-  list.length -= c;
-  return ret;
-}
-
-// Copies a specified amount of bytes from the list of buffered data chunks.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function copyFromBuffer(n, list) {
-  var ret = Buffer.allocUnsafe(n);
-  var p = list.head;
-  var c = 1;
-  p.data.copy(ret);
-  n -= p.data.length;
-  while (p = p.next) {
-    var buf = p.data;
-    var nb = n > buf.length ? buf.length : n;
-    buf.copy(ret, ret.length - n, 0, nb);
-    n -= nb;
-    if (n === 0) {
-      if (nb === buf.length) {
-        ++c;
-        if (p.next) list.head = p.next;else list.head = list.tail = null;
-      } else {
-        list.head = p;
-        p.data = buf.slice(nb);
-      }
-      break;
-    }
-    ++c;
-  }
-  list.length -= c;
-  return ret;
-}
-
-function endReadable(stream) {
-  var state = stream._readableState;
-
-  // If we get here before consuming all the bytes, then that is a
-  // bug in node.  Should never happen.
-  if (state.length > 0) throw new Error('"endReadable()" called on non-empty stream');
-
-  if (!state.endEmitted) {
-    state.ended = true;
-    pna.nextTick(endReadableNT, state, stream);
-  }
-}
-
-function endReadableNT(state, stream) {
-  // Check that we didn't get one last unshift.
-  if (!state.endEmitted && state.length === 0) {
-    state.endEmitted = true;
-    stream.readable = false;
-    stream.emit('end');
-  }
-}
-
-function indexOf(xs, x) {
-  for (var i = 0, l = xs.length; i < l; i++) {
-    if (xs[i] === x) return i;
-  }
-  return -1;
-}
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/_stream_transform.js":
-/*!***************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/_stream_transform.js ***!
-  \***************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// a transform stream is a readable/writable stream where you do
-// something with the data.  Sometimes it's called a "filter",
-// but that's not a great name for it, since that implies a thing where
-// some bits pass through, and others are simply ignored.  (That would
-// be a valid example of a transform, of course.)
-//
-// While the output is causally related to the input, it's not a
-// necessarily symmetric or synchronous transformation.  For example,
-// a zlib stream might take multiple plain-text writes(), and then
-// emit a single compressed chunk some time in the future.
-//
-// Here's how this works:
-//
-// The Transform stream has all the aspects of the readable and writable
-// stream classes.  When you write(chunk), that calls _write(chunk,cb)
-// internally, and returns false if there's a lot of pending writes
-// buffered up.  When you call read(), that calls _read(n) until
-// there's enough pending readable data buffered up.
-//
-// In a transform stream, the written data is placed in a buffer.  When
-// _read(n) is called, it transforms the queued up data, calling the
-// buffered _write cb's as it consumes chunks.  If consuming a single
-// written chunk would result in multiple output chunks, then the first
-// outputted bit calls the readcb, and subsequent chunks just go into
-// the read buffer, and will cause it to emit 'readable' if necessary.
-//
-// This way, back-pressure is actually determined by the reading side,
-// since _read has to be called to start processing a new chunk.  However,
-// a pathological inflate type of transform can cause excessive buffering
-// here.  For example, imagine a stream where every byte of input is
-// interpreted as an integer from 0-255, and then results in that many
-// bytes of output.  Writing the 4 bytes {ff,ff,ff,ff} would result in
-// 1kb of data being output.  In this case, you could write a very small
-// amount of input, and end up with a very large amount of output.  In
-// such a pathological inflating mechanism, there'd be no way to tell
-// the system to stop doing the transform.  A single 4MB write could
-// cause the system to run out of memory.
-//
-// However, even in such a pathological case, only a single written chunk
-// would be consumed, and then the rest would wait (un-transformed) until
-// the results of the previous transformed chunk were consumed.
-
-
-
-module.exports = Transform;
-
-var Duplex = __webpack_require__(/*! ./_stream_duplex */ "./node_modules/readable-stream/lib/_stream_duplex.js");
-
-/*<replacement>*/
-var util = __webpack_require__(/*! core-util-is */ "./node_modules/core-util-is/lib/util.js");
-util.inherits = __webpack_require__(/*! inherits */ "./node_modules/inherits/inherits.js");
-/*</replacement>*/
-
-util.inherits(Transform, Duplex);
-
-function afterTransform(er, data) {
-  var ts = this._transformState;
-  ts.transforming = false;
-
-  var cb = ts.writecb;
-
-  if (!cb) {
-    return this.emit('error', new Error('write callback called multiple times'));
-  }
-
-  ts.writechunk = null;
-  ts.writecb = null;
-
-  if (data != null) // single equals check for both `null` and `undefined`
-    this.push(data);
-
-  cb(er);
-
-  var rs = this._readableState;
-  rs.reading = false;
-  if (rs.needReadable || rs.length < rs.highWaterMark) {
-    this._read(rs.highWaterMark);
-  }
-}
-
-function Transform(options) {
-  if (!(this instanceof Transform)) return new Transform(options);
-
-  Duplex.call(this, options);
-
-  this._transformState = {
-    afterTransform: afterTransform.bind(this),
-    needTransform: false,
-    transforming: false,
-    writecb: null,
-    writechunk: null,
-    writeencoding: null
-  };
-
-  // start out asking for a readable event once data is transformed.
-  this._readableState.needReadable = true;
-
-  // we have implemented the _read method, and done the other things
-  // that Readable wants before the first _read call, so unset the
-  // sync guard flag.
-  this._readableState.sync = false;
-
-  if (options) {
-    if (typeof options.transform === 'function') this._transform = options.transform;
-
-    if (typeof options.flush === 'function') this._flush = options.flush;
-  }
-
-  // When the writable side finishes, then flush out anything remaining.
-  this.on('prefinish', prefinish);
-}
-
-function prefinish() {
-  var _this = this;
-
-  if (typeof this._flush === 'function') {
-    this._flush(function (er, data) {
-      done(_this, er, data);
-    });
-  } else {
-    done(this, null, null);
-  }
-}
-
-Transform.prototype.push = function (chunk, encoding) {
-  this._transformState.needTransform = false;
-  return Duplex.prototype.push.call(this, chunk, encoding);
-};
-
-// This is the part where you do stuff!
-// override this function in implementation classes.
-// 'chunk' is an input chunk.
-//
-// Call `push(newChunk)` to pass along transformed output
-// to the readable side.  You may call 'push' zero or more times.
-//
-// Call `cb(err)` when you are done with this chunk.  If you pass
-// an error, then that'll put the hurt on the whole operation.  If you
-// never call cb(), then you'll never get another chunk.
-Transform.prototype._transform = function (chunk, encoding, cb) {
-  throw new Error('_transform() is not implemented');
-};
-
-Transform.prototype._write = function (chunk, encoding, cb) {
-  var ts = this._transformState;
-  ts.writecb = cb;
-  ts.writechunk = chunk;
-  ts.writeencoding = encoding;
-  if (!ts.transforming) {
-    var rs = this._readableState;
-    if (ts.needTransform || rs.needReadable || rs.length < rs.highWaterMark) this._read(rs.highWaterMark);
-  }
-};
-
-// Doesn't matter what the args are here.
-// _transform does all the work.
-// That we got here means that the readable side wants more data.
-Transform.prototype._read = function (n) {
-  var ts = this._transformState;
-
-  if (ts.writechunk !== null && ts.writecb && !ts.transforming) {
-    ts.transforming = true;
-    this._transform(ts.writechunk, ts.writeencoding, ts.afterTransform);
-  } else {
-    // mark that we need a transform, so that any data that comes in
-    // will get processed, now that we've asked for it.
-    ts.needTransform = true;
-  }
-};
-
-Transform.prototype._destroy = function (err, cb) {
-  var _this2 = this;
-
-  Duplex.prototype._destroy.call(this, err, function (err2) {
-    cb(err2);
-    _this2.emit('close');
-  });
-};
-
-function done(stream, er, data) {
-  if (er) return stream.emit('error', er);
-
-  if (data != null) // single equals check for both `null` and `undefined`
-    stream.push(data);
-
-  // if there's nothing in the write buffer, then that means
-  // that nothing more will ever be provided
-  if (stream._writableState.length) throw new Error('Calling transform done when ws.length != 0');
-
-  if (stream._transformState.transforming) throw new Error('Calling transform done when still transforming');
-
-  return stream.push(null);
-}
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/_stream_writable.js":
-/*!**************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/_stream_writable.js ***!
-  \**************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// A bit simpler than readable streams.
-// Implement an async ._write(chunk, encoding, cb), and it'll handle all
-// the drain event emission and buffering.
-
-
-
-/*<replacement>*/
-
-var pna = __webpack_require__(/*! process-nextick-args */ "./node_modules/process-nextick-args/index.js");
-/*</replacement>*/
-
-module.exports = Writable;
-
-/* <replacement> */
-function WriteReq(chunk, encoding, cb) {
-  this.chunk = chunk;
-  this.encoding = encoding;
-  this.callback = cb;
-  this.next = null;
-}
-
-// It seems a linked list but it is not
-// there will be only 2 of these for each stream
-function CorkedRequest(state) {
-  var _this = this;
-
-  this.next = null;
-  this.entry = null;
-  this.finish = function () {
-    onCorkedFinish(_this, state);
-  };
-}
-/* </replacement> */
-
-/*<replacement>*/
-var asyncWrite = !process.browser && ['v0.10', 'v0.9.'].indexOf(process.version.slice(0, 5)) > -1 ? setImmediate : pna.nextTick;
-/*</replacement>*/
-
-/*<replacement>*/
-var Duplex;
-/*</replacement>*/
-
-Writable.WritableState = WritableState;
-
-/*<replacement>*/
-var util = __webpack_require__(/*! core-util-is */ "./node_modules/core-util-is/lib/util.js");
-util.inherits = __webpack_require__(/*! inherits */ "./node_modules/inherits/inherits.js");
-/*</replacement>*/
-
-/*<replacement>*/
-var internalUtil = {
-  deprecate: __webpack_require__(/*! util-deprecate */ "./node_modules/util-deprecate/node.js")
-};
-/*</replacement>*/
-
-/*<replacement>*/
-var Stream = __webpack_require__(/*! ./internal/streams/stream */ "./node_modules/readable-stream/lib/internal/streams/stream.js");
-/*</replacement>*/
-
-/*<replacement>*/
-
-var Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer;
-var OurUint8Array = global.Uint8Array || function () {};
-function _uint8ArrayToBuffer(chunk) {
-  return Buffer.from(chunk);
-}
-function _isUint8Array(obj) {
-  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
-}
-
-/*</replacement>*/
-
-var destroyImpl = __webpack_require__(/*! ./internal/streams/destroy */ "./node_modules/readable-stream/lib/internal/streams/destroy.js");
-
-util.inherits(Writable, Stream);
-
-function nop() {}
-
-function WritableState(options, stream) {
-  Duplex = Duplex || __webpack_require__(/*! ./_stream_duplex */ "./node_modules/readable-stream/lib/_stream_duplex.js");
-
-  options = options || {};
-
-  // Duplex streams are both readable and writable, but share
-  // the same options object.
-  // However, some cases require setting options to different
-  // values for the readable and the writable sides of the duplex stream.
-  // These options can be provided separately as readableXXX and writableXXX.
-  var isDuplex = stream instanceof Duplex;
-
-  // object stream flag to indicate whether or not this stream
-  // contains buffers or objects.
-  this.objectMode = !!options.objectMode;
-
-  if (isDuplex) this.objectMode = this.objectMode || !!options.writableObjectMode;
-
-  // the point at which write() starts returning false
-  // Note: 0 is a valid value, means that we always return false if
-  // the entire buffer is not flushed immediately on write()
-  var hwm = options.highWaterMark;
-  var writableHwm = options.writableHighWaterMark;
-  var defaultHwm = this.objectMode ? 16 : 16 * 1024;
-
-  if (hwm || hwm === 0) this.highWaterMark = hwm;else if (isDuplex && (writableHwm || writableHwm === 0)) this.highWaterMark = writableHwm;else this.highWaterMark = defaultHwm;
-
-  // cast to ints.
-  this.highWaterMark = Math.floor(this.highWaterMark);
-
-  // if _final has been called
-  this.finalCalled = false;
-
-  // drain event flag.
-  this.needDrain = false;
-  // at the start of calling end()
-  this.ending = false;
-  // when end() has been called, and returned
-  this.ended = false;
-  // when 'finish' is emitted
-  this.finished = false;
-
-  // has it been destroyed
-  this.destroyed = false;
-
-  // should we decode strings into buffers before passing to _write?
-  // this is here so that some node-core streams can optimize string
-  // handling at a lower level.
-  var noDecode = options.decodeStrings === false;
-  this.decodeStrings = !noDecode;
-
-  // Crypto is kind of old and crusty.  Historically, its default string
-  // encoding is 'binary' so we have to make this configurable.
-  // Everything else in the universe uses 'utf8', though.
-  this.defaultEncoding = options.defaultEncoding || 'utf8';
-
-  // not an actual buffer we keep track of, but a measurement
-  // of how much we're waiting to get pushed to some underlying
-  // socket or file.
-  this.length = 0;
-
-  // a flag to see when we're in the middle of a write.
-  this.writing = false;
-
-  // when true all writes will be buffered until .uncork() call
-  this.corked = 0;
-
-  // a flag to be able to tell if the onwrite cb is called immediately,
-  // or on a later tick.  We set this to true at first, because any
-  // actions that shouldn't happen until "later" should generally also
-  // not happen before the first write call.
-  this.sync = true;
-
-  // a flag to know if we're processing previously buffered items, which
-  // may call the _write() callback in the same tick, so that we don't
-  // end up in an overlapped onwrite situation.
-  this.bufferProcessing = false;
-
-  // the callback that's passed to _write(chunk,cb)
-  this.onwrite = function (er) {
-    onwrite(stream, er);
-  };
-
-  // the callback that the user supplies to write(chunk,encoding,cb)
-  this.writecb = null;
-
-  // the amount that is being written when _write is called.
-  this.writelen = 0;
-
-  this.bufferedRequest = null;
-  this.lastBufferedRequest = null;
-
-  // number of pending user-supplied write callbacks
-  // this must be 0 before 'finish' can be emitted
-  this.pendingcb = 0;
-
-  // emit prefinish if the only thing we're waiting for is _write cbs
-  // This is relevant for synchronous Transform streams
-  this.prefinished = false;
-
-  // True if the error was already emitted and should not be thrown again
-  this.errorEmitted = false;
-
-  // count buffered requests
-  this.bufferedRequestCount = 0;
-
-  // allocate the first CorkedRequest, there is always
-  // one allocated and free to use, and we maintain at most two
-  this.corkedRequestsFree = new CorkedRequest(this);
-}
-
-WritableState.prototype.getBuffer = function getBuffer() {
-  var current = this.bufferedRequest;
-  var out = [];
-  while (current) {
-    out.push(current);
-    current = current.next;
-  }
-  return out;
-};
-
-(function () {
-  try {
-    Object.defineProperty(WritableState.prototype, 'buffer', {
-      get: internalUtil.deprecate(function () {
-        return this.getBuffer();
-      }, '_writableState.buffer is deprecated. Use _writableState.getBuffer ' + 'instead.', 'DEP0003')
-    });
-  } catch (_) {}
-})();
-
-// Test _writableState for inheritance to account for Duplex streams,
-// whose prototype chain only points to Readable.
-var realHasInstance;
-if (typeof Symbol === 'function' && Symbol.hasInstance && typeof Function.prototype[Symbol.hasInstance] === 'function') {
-  realHasInstance = Function.prototype[Symbol.hasInstance];
-  Object.defineProperty(Writable, Symbol.hasInstance, {
-    value: function (object) {
-      if (realHasInstance.call(this, object)) return true;
-      if (this !== Writable) return false;
-
-      return object && object._writableState instanceof WritableState;
-    }
-  });
-} else {
-  realHasInstance = function (object) {
-    return object instanceof this;
-  };
-}
-
-function Writable(options) {
-  Duplex = Duplex || __webpack_require__(/*! ./_stream_duplex */ "./node_modules/readable-stream/lib/_stream_duplex.js");
-
-  // Writable ctor is applied to Duplexes, too.
-  // `realHasInstance` is necessary because using plain `instanceof`
-  // would return false, as no `_writableState` property is attached.
-
-  // Trying to use the custom `instanceof` for Writable here will also break the
-  // Node.js LazyTransform implementation, which has a non-trivial getter for
-  // `_writableState` that would lead to infinite recursion.
-  if (!realHasInstance.call(Writable, this) && !(this instanceof Duplex)) {
-    return new Writable(options);
-  }
-
-  this._writableState = new WritableState(options, this);
-
-  // legacy.
-  this.writable = true;
-
-  if (options) {
-    if (typeof options.write === 'function') this._write = options.write;
-
-    if (typeof options.writev === 'function') this._writev = options.writev;
-
-    if (typeof options.destroy === 'function') this._destroy = options.destroy;
-
-    if (typeof options.final === 'function') this._final = options.final;
-  }
-
-  Stream.call(this);
-}
-
-// Otherwise people can pipe Writable streams, which is just wrong.
-Writable.prototype.pipe = function () {
-  this.emit('error', new Error('Cannot pipe, not readable'));
-};
-
-function writeAfterEnd(stream, cb) {
-  var er = new Error('write after end');
-  // TODO: defer error events consistently everywhere, not just the cb
-  stream.emit('error', er);
-  pna.nextTick(cb, er);
-}
-
-// Checks that a user-supplied chunk is valid, especially for the particular
-// mode the stream is in. Currently this means that `null` is never accepted
-// and undefined/non-string values are only allowed in object mode.
-function validChunk(stream, state, chunk, cb) {
-  var valid = true;
-  var er = false;
-
-  if (chunk === null) {
-    er = new TypeError('May not write null values to stream');
-  } else if (typeof chunk !== 'string' && chunk !== undefined && !state.objectMode) {
-    er = new TypeError('Invalid non-string/buffer chunk');
-  }
-  if (er) {
-    stream.emit('error', er);
-    pna.nextTick(cb, er);
-    valid = false;
-  }
-  return valid;
-}
-
-Writable.prototype.write = function (chunk, encoding, cb) {
-  var state = this._writableState;
-  var ret = false;
-  var isBuf = !state.objectMode && _isUint8Array(chunk);
-
-  if (isBuf && !Buffer.isBuffer(chunk)) {
-    chunk = _uint8ArrayToBuffer(chunk);
-  }
-
-  if (typeof encoding === 'function') {
-    cb = encoding;
-    encoding = null;
-  }
-
-  if (isBuf) encoding = 'buffer';else if (!encoding) encoding = state.defaultEncoding;
-
-  if (typeof cb !== 'function') cb = nop;
-
-  if (state.ended) writeAfterEnd(this, cb);else if (isBuf || validChunk(this, state, chunk, cb)) {
-    state.pendingcb++;
-    ret = writeOrBuffer(this, state, isBuf, chunk, encoding, cb);
-  }
-
-  return ret;
-};
-
-Writable.prototype.cork = function () {
-  var state = this._writableState;
-
-  state.corked++;
-};
-
-Writable.prototype.uncork = function () {
-  var state = this._writableState;
-
-  if (state.corked) {
-    state.corked--;
-
-    if (!state.writing && !state.corked && !state.finished && !state.bufferProcessing && state.bufferedRequest) clearBuffer(this, state);
-  }
-};
-
-Writable.prototype.setDefaultEncoding = function setDefaultEncoding(encoding) {
-  // node::ParseEncoding() requires lower case.
-  if (typeof encoding === 'string') encoding = encoding.toLowerCase();
-  if (!(['hex', 'utf8', 'utf-8', 'ascii', 'binary', 'base64', 'ucs2', 'ucs-2', 'utf16le', 'utf-16le', 'raw'].indexOf((encoding + '').toLowerCase()) > -1)) throw new TypeError('Unknown encoding: ' + encoding);
-  this._writableState.defaultEncoding = encoding;
-  return this;
-};
-
-function decodeChunk(state, chunk, encoding) {
-  if (!state.objectMode && state.decodeStrings !== false && typeof chunk === 'string') {
-    chunk = Buffer.from(chunk, encoding);
-  }
-  return chunk;
-}
-
-Object.defineProperty(Writable.prototype, 'writableHighWaterMark', {
-  // making it explicit this property is not enumerable
-  // because otherwise some prototype manipulation in
-  // userland will fail
-  enumerable: false,
-  get: function () {
-    return this._writableState.highWaterMark;
-  }
-});
-
-// if we're already writing something, then just put this
-// in the queue, and wait our turn.  Otherwise, call _write
-// If we return false, then we need a drain event, so set that flag.
-function writeOrBuffer(stream, state, isBuf, chunk, encoding, cb) {
-  if (!isBuf) {
-    var newChunk = decodeChunk(state, chunk, encoding);
-    if (chunk !== newChunk) {
-      isBuf = true;
-      encoding = 'buffer';
-      chunk = newChunk;
-    }
-  }
-  var len = state.objectMode ? 1 : chunk.length;
-
-  state.length += len;
-
-  var ret = state.length < state.highWaterMark;
-  // we must ensure that previous needDrain will not be reset to false.
-  if (!ret) state.needDrain = true;
-
-  if (state.writing || state.corked) {
-    var last = state.lastBufferedRequest;
-    state.lastBufferedRequest = {
-      chunk: chunk,
-      encoding: encoding,
-      isBuf: isBuf,
-      callback: cb,
-      next: null
-    };
-    if (last) {
-      last.next = state.lastBufferedRequest;
-    } else {
-      state.bufferedRequest = state.lastBufferedRequest;
-    }
-    state.bufferedRequestCount += 1;
-  } else {
-    doWrite(stream, state, false, len, chunk, encoding, cb);
-  }
-
-  return ret;
-}
-
-function doWrite(stream, state, writev, len, chunk, encoding, cb) {
-  state.writelen = len;
-  state.writecb = cb;
-  state.writing = true;
-  state.sync = true;
-  if (writev) stream._writev(chunk, state.onwrite);else stream._write(chunk, encoding, state.onwrite);
-  state.sync = false;
-}
-
-function onwriteError(stream, state, sync, er, cb) {
-  --state.pendingcb;
-
-  if (sync) {
-    // defer the callback if we are being called synchronously
-    // to avoid piling up things on the stack
-    pna.nextTick(cb, er);
-    // this can emit finish, and it will always happen
-    // after error
-    pna.nextTick(finishMaybe, stream, state);
-    stream._writableState.errorEmitted = true;
-    stream.emit('error', er);
-  } else {
-    // the caller expect this to happen before if
-    // it is async
-    cb(er);
-    stream._writableState.errorEmitted = true;
-    stream.emit('error', er);
-    // this can emit finish, but finish must
-    // always follow error
-    finishMaybe(stream, state);
-  }
-}
-
-function onwriteStateUpdate(state) {
-  state.writing = false;
-  state.writecb = null;
-  state.length -= state.writelen;
-  state.writelen = 0;
-}
-
-function onwrite(stream, er) {
-  var state = stream._writableState;
-  var sync = state.sync;
-  var cb = state.writecb;
-
-  onwriteStateUpdate(state);
-
-  if (er) onwriteError(stream, state, sync, er, cb);else {
-    // Check if we're actually ready to finish, but don't emit yet
-    var finished = needFinish(state);
-
-    if (!finished && !state.corked && !state.bufferProcessing && state.bufferedRequest) {
-      clearBuffer(stream, state);
-    }
-
-    if (sync) {
-      /*<replacement>*/
-      asyncWrite(afterWrite, stream, state, finished, cb);
-      /*</replacement>*/
-    } else {
-      afterWrite(stream, state, finished, cb);
-    }
-  }
-}
-
-function afterWrite(stream, state, finished, cb) {
-  if (!finished) onwriteDrain(stream, state);
-  state.pendingcb--;
-  cb();
-  finishMaybe(stream, state);
-}
-
-// Must force callback to be called on nextTick, so that we don't
-// emit 'drain' before the write() consumer gets the 'false' return
-// value, and has a chance to attach a 'drain' listener.
-function onwriteDrain(stream, state) {
-  if (state.length === 0 && state.needDrain) {
-    state.needDrain = false;
-    stream.emit('drain');
-  }
-}
-
-// if there's something in the buffer waiting, then process it
-function clearBuffer(stream, state) {
-  state.bufferProcessing = true;
-  var entry = state.bufferedRequest;
-
-  if (stream._writev && entry && entry.next) {
-    // Fast case, write everything using _writev()
-    var l = state.bufferedRequestCount;
-    var buffer = new Array(l);
-    var holder = state.corkedRequestsFree;
-    holder.entry = entry;
-
-    var count = 0;
-    var allBuffers = true;
-    while (entry) {
-      buffer[count] = entry;
-      if (!entry.isBuf) allBuffers = false;
-      entry = entry.next;
-      count += 1;
-    }
-    buffer.allBuffers = allBuffers;
-
-    doWrite(stream, state, true, state.length, buffer, '', holder.finish);
-
-    // doWrite is almost always async, defer these to save a bit of time
-    // as the hot path ends with doWrite
-    state.pendingcb++;
-    state.lastBufferedRequest = null;
-    if (holder.next) {
-      state.corkedRequestsFree = holder.next;
-      holder.next = null;
-    } else {
-      state.corkedRequestsFree = new CorkedRequest(state);
-    }
-    state.bufferedRequestCount = 0;
-  } else {
-    // Slow case, write chunks one-by-one
-    while (entry) {
-      var chunk = entry.chunk;
-      var encoding = entry.encoding;
-      var cb = entry.callback;
-      var len = state.objectMode ? 1 : chunk.length;
-
-      doWrite(stream, state, false, len, chunk, encoding, cb);
-      entry = entry.next;
-      state.bufferedRequestCount--;
-      // if we didn't call the onwrite immediately, then
-      // it means that we need to wait until it does.
-      // also, that means that the chunk and cb are currently
-      // being processed, so move the buffer counter past them.
-      if (state.writing) {
-        break;
-      }
-    }
-
-    if (entry === null) state.lastBufferedRequest = null;
-  }
-
-  state.bufferedRequest = entry;
-  state.bufferProcessing = false;
-}
-
-Writable.prototype._write = function (chunk, encoding, cb) {
-  cb(new Error('_write() is not implemented'));
-};
-
-Writable.prototype._writev = null;
-
-Writable.prototype.end = function (chunk, encoding, cb) {
-  var state = this._writableState;
-
-  if (typeof chunk === 'function') {
-    cb = chunk;
-    chunk = null;
-    encoding = null;
-  } else if (typeof encoding === 'function') {
-    cb = encoding;
-    encoding = null;
-  }
-
-  if (chunk !== null && chunk !== undefined) this.write(chunk, encoding);
-
-  // .end() fully uncorks
-  if (state.corked) {
-    state.corked = 1;
-    this.uncork();
-  }
-
-  // ignore unnecessary end() calls.
-  if (!state.ending && !state.finished) endWritable(this, state, cb);
-};
-
-function needFinish(state) {
-  return state.ending && state.length === 0 && state.bufferedRequest === null && !state.finished && !state.writing;
-}
-function callFinal(stream, state) {
-  stream._final(function (err) {
-    state.pendingcb--;
-    if (err) {
-      stream.emit('error', err);
-    }
-    state.prefinished = true;
-    stream.emit('prefinish');
-    finishMaybe(stream, state);
-  });
-}
-function prefinish(stream, state) {
-  if (!state.prefinished && !state.finalCalled) {
-    if (typeof stream._final === 'function') {
-      state.pendingcb++;
-      state.finalCalled = true;
-      pna.nextTick(callFinal, stream, state);
-    } else {
-      state.prefinished = true;
-      stream.emit('prefinish');
-    }
-  }
-}
-
-function finishMaybe(stream, state) {
-  var need = needFinish(state);
-  if (need) {
-    prefinish(stream, state);
-    if (state.pendingcb === 0) {
-      state.finished = true;
-      stream.emit('finish');
-    }
-  }
-  return need;
-}
-
-function endWritable(stream, state, cb) {
-  state.ending = true;
-  finishMaybe(stream, state);
-  if (cb) {
-    if (state.finished) pna.nextTick(cb);else stream.once('finish', cb);
-  }
-  state.ended = true;
-  stream.writable = false;
-}
-
-function onCorkedFinish(corkReq, state, err) {
-  var entry = corkReq.entry;
-  corkReq.entry = null;
-  while (entry) {
-    var cb = entry.callback;
-    state.pendingcb--;
-    cb(err);
-    entry = entry.next;
-  }
-  if (state.corkedRequestsFree) {
-    state.corkedRequestsFree.next = corkReq;
-  } else {
-    state.corkedRequestsFree = corkReq;
-  }
-}
-
-Object.defineProperty(Writable.prototype, 'destroyed', {
-  get: function () {
-    if (this._writableState === undefined) {
-      return false;
-    }
-    return this._writableState.destroyed;
-  },
-  set: function (value) {
-    // we ignore the value if the stream
-    // has not been initialized yet
-    if (!this._writableState) {
-      return;
-    }
-
-    // backward compatibility, the user is explicitly
-    // managing destroyed
-    this._writableState.destroyed = value;
-  }
-});
-
-Writable.prototype.destroy = destroyImpl.destroy;
-Writable.prototype._undestroy = destroyImpl.undestroy;
-Writable.prototype._destroy = function (err, cb) {
-  this.end();
-  cb(err);
-};
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/internal/streams/BufferList.js":
-/*!*************************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/internal/streams/BufferList.js ***!
-  \*************************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-var Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer;
-var util = __webpack_require__(/*! util */ "util");
-
-function copyBuffer(src, target, offset) {
-  src.copy(target, offset);
-}
-
-module.exports = function () {
-  function BufferList() {
-    _classCallCheck(this, BufferList);
-
-    this.head = null;
-    this.tail = null;
-    this.length = 0;
-  }
-
-  BufferList.prototype.push = function push(v) {
-    var entry = { data: v, next: null };
-    if (this.length > 0) this.tail.next = entry;else this.head = entry;
-    this.tail = entry;
-    ++this.length;
-  };
-
-  BufferList.prototype.unshift = function unshift(v) {
-    var entry = { data: v, next: this.head };
-    if (this.length === 0) this.tail = entry;
-    this.head = entry;
-    ++this.length;
-  };
-
-  BufferList.prototype.shift = function shift() {
-    if (this.length === 0) return;
-    var ret = this.head.data;
-    if (this.length === 1) this.head = this.tail = null;else this.head = this.head.next;
-    --this.length;
-    return ret;
-  };
-
-  BufferList.prototype.clear = function clear() {
-    this.head = this.tail = null;
-    this.length = 0;
-  };
-
-  BufferList.prototype.join = function join(s) {
-    if (this.length === 0) return '';
-    var p = this.head;
-    var ret = '' + p.data;
-    while (p = p.next) {
-      ret += s + p.data;
-    }return ret;
-  };
-
-  BufferList.prototype.concat = function concat(n) {
-    if (this.length === 0) return Buffer.alloc(0);
-    if (this.length === 1) return this.head.data;
-    var ret = Buffer.allocUnsafe(n >>> 0);
-    var p = this.head;
-    var i = 0;
-    while (p) {
-      copyBuffer(p.data, ret, i);
-      i += p.data.length;
-      p = p.next;
-    }
-    return ret;
-  };
-
-  return BufferList;
-}();
-
-if (util && util.inspect && util.inspect.custom) {
-  module.exports.prototype[util.inspect.custom] = function () {
-    var obj = util.inspect({ length: this.length });
-    return this.constructor.name + ' ' + obj;
-  };
-}
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/internal/streams/destroy.js":
-/*!**********************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/internal/streams/destroy.js ***!
-  \**********************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-/*<replacement>*/
-
-var pna = __webpack_require__(/*! process-nextick-args */ "./node_modules/process-nextick-args/index.js");
-/*</replacement>*/
-
-// undocumented cb() API, needed for core, not for public API
-function destroy(err, cb) {
-  var _this = this;
-
-  var readableDestroyed = this._readableState && this._readableState.destroyed;
-  var writableDestroyed = this._writableState && this._writableState.destroyed;
-
-  if (readableDestroyed || writableDestroyed) {
-    if (cb) {
-      cb(err);
-    } else if (err && (!this._writableState || !this._writableState.errorEmitted)) {
-      pna.nextTick(emitErrorNT, this, err);
-    }
-    return this;
-  }
-
-  // we set destroyed to true before firing error callbacks in order
-  // to make it re-entrance safe in case destroy() is called within callbacks
-
-  if (this._readableState) {
-    this._readableState.destroyed = true;
-  }
-
-  // if this is a duplex stream mark the writable part as destroyed as well
-  if (this._writableState) {
-    this._writableState.destroyed = true;
-  }
-
-  this._destroy(err || null, function (err) {
-    if (!cb && err) {
-      pna.nextTick(emitErrorNT, _this, err);
-      if (_this._writableState) {
-        _this._writableState.errorEmitted = true;
-      }
-    } else if (cb) {
-      cb(err);
-    }
-  });
-
-  return this;
-}
-
-function undestroy() {
-  if (this._readableState) {
-    this._readableState.destroyed = false;
-    this._readableState.reading = false;
-    this._readableState.ended = false;
-    this._readableState.endEmitted = false;
-  }
-
-  if (this._writableState) {
-    this._writableState.destroyed = false;
-    this._writableState.ended = false;
-    this._writableState.ending = false;
-    this._writableState.finished = false;
-    this._writableState.errorEmitted = false;
-  }
-}
-
-function emitErrorNT(self, err) {
-  self.emit('error', err);
-}
-
-module.exports = {
-  destroy: destroy,
-  undestroy: undestroy
-};
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/lib/internal/streams/stream.js":
-/*!*********************************************************************!*\
-  !*** ./node_modules/readable-stream/lib/internal/streams/stream.js ***!
-  \*********************************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-module.exports = __webpack_require__(/*! stream */ "stream");
-
-
-/***/ }),
-
-/***/ "./node_modules/readable-stream/readable.js":
-/*!**************************************************!*\
-  !*** ./node_modules/readable-stream/readable.js ***!
-  \**************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-var Stream = __webpack_require__(/*! stream */ "stream");
-if (process.env.READABLE_STREAM === 'disable' && Stream) {
-  module.exports = Stream;
-  exports = module.exports = Stream.Readable;
-  exports.Readable = Stream.Readable;
-  exports.Writable = Stream.Writable;
-  exports.Duplex = Stream.Duplex;
-  exports.Transform = Stream.Transform;
-  exports.PassThrough = Stream.PassThrough;
-  exports.Stream = Stream;
-} else {
-  exports = module.exports = __webpack_require__(/*! ./lib/_stream_readable.js */ "./node_modules/readable-stream/lib/_stream_readable.js");
-  exports.Stream = Stream || exports;
-  exports.Readable = exports;
-  exports.Writable = __webpack_require__(/*! ./lib/_stream_writable.js */ "./node_modules/readable-stream/lib/_stream_writable.js");
-  exports.Duplex = __webpack_require__(/*! ./lib/_stream_duplex.js */ "./node_modules/readable-stream/lib/_stream_duplex.js");
-  exports.Transform = __webpack_require__(/*! ./lib/_stream_transform.js */ "./node_modules/readable-stream/lib/_stream_transform.js");
-  exports.PassThrough = __webpack_require__(/*! ./lib/_stream_passthrough.js */ "./node_modules/readable-stream/lib/_stream_passthrough.js");
-}
-
+module.exports = JSON.parse("{\"_from\":\"mongodb@3.3.0\",\"_id\":\"mongodb@3.3.0\",\"_inBundle\":false,\"_integrity\":\"sha512-QYa8YEN5uiJyIFdnn1vmBtiSveyygmQghsaL/RDnHqUzjGvkYe0vRg6UikCKba06cg6El/Lu7qzOYnR3vMhwlA==\",\"_location\":\"/mongodb\",\"_phantomChildren\":{},\"_requested\":{\"type\":\"version\",\"registry\":true,\"raw\":\"mongodb@3.3.0\",\"name\":\"mongodb\",\"escapedName\":\"mongodb\",\"rawSpec\":\"3.3.0\",\"saveSpec\":null,\"fetchSpec\":\"3.3.0\"},\"_requiredBy\":[\"/\"],\"_resolved\":\"https://registry.npmjs.org/mongodb/-/mongodb-3.3.0.tgz\",\"_shasum\":\"3ec6fa6260405b16fe76cc37b5d09684d13d8c11\",\"_spec\":\"mongodb@3.3.0\",\"_where\":\"/Users/terry/Projects/dbmongo\",\"bugs\":{\"url\":\"https://github.com/mongodb/node-mongodb-native/issues\"},\"bundleDependencies\":false,\"dependencies\":{\"bson\":\"^1.1.1\",\"require_optional\":\"^1.0.1\",\"safe-buffer\":\"^5.1.2\"},\"deprecated\":false,\"description\":\"The official MongoDB driver for Node.js\",\"devDependencies\":{\"bluebird\":\"3.5.0\",\"chai\":\"^4.1.1\",\"chai-subset\":\"^1.6.0\",\"co\":\"4.6.0\",\"coveralls\":\"^2.11.6\",\"eslint\":\"^4.5.0\",\"eslint-plugin-prettier\":\"^2.2.0\",\"istanbul\":\"^0.4.5\",\"jsdoc\":\"3.5.5\",\"lodash.camelcase\":\"^4.3.0\",\"mocha-sinon\":\"^2.1.0\",\"mongodb-extjson\":\"^2.1.1\",\"mongodb-mock-server\":\"^1.0.1\",\"mongodb-test-runner\":\"^1.1.18\",\"prettier\":\"~1.12.0\",\"semver\":\"^5.5.0\",\"sinon\":\"^4.3.0\",\"sinon-chai\":\"^3.2.0\",\"snappy\":\"^6.1.2\",\"standard-version\":\"^4.4.0\",\"worker-farm\":\"^1.5.0\",\"wtfnode\":\"^0.8.0\"},\"engines\":{\"node\":\">=4\"},\"files\":[\"index.js\",\"lib\"],\"homepage\":\"https://github.com/mongodb/node-mongodb-native\",\"keywords\":[\"mongodb\",\"driver\",\"official\"],\"license\":\"Apache-2.0\",\"main\":\"index.js\",\"name\":\"mongodb\",\"peerOptionalDependencies\":{\"kerberos\":\"^1.0.0\",\"mongodb-client-encryption\":\"^1.0.0\",\"mongodb-extjson\":\"^2.1.2\",\"snappy\":\"^6.1.1\",\"bson-ext\":\"^2.0.0\"},\"repository\":{\"type\":\"git\",\"url\":\"git+ssh://git@github.com/mongodb/node-mongodb-native.git\"},\"scripts\":{\"atlas\":\"node ./test/atlas_connectivity_tests.js\",\"bench\":\"node test/driverBench/\",\"coverage\":\"istanbul cover mongodb-test-runner -- -t 60000 test/core test/unit test/functional\",\"format\":\"prettier --print-width 100 --tab-width 2 --single-quote --write 'test/**/*.js' 'lib/**/*.js'\",\"generate-evergreen\":\"node .evergreen/generate_evergreen_tasks.js\",\"lint\":\"eslint lib test\",\"release\":\"standard-version -i HISTORY.md\",\"test\":\"npm run lint && mongodb-test-runner -t 60000 test/core test/unit test/functional\"},\"version\":\"3.3.0\"}");
 
 /***/ }),
 
@@ -52264,227 +46359,6 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-
-/***/ }),
-
-/***/ "./node_modules/saslprep/index.js":
-/*!****************************************!*\
-  !*** ./node_modules/saslprep/index.js ***!
-  \****************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-const {
-  unassigned_code_points,
-  commonly_mapped_to_nothing,
-  non_ASCII_space_characters,
-  prohibited_characters,
-  bidirectional_r_al,
-  bidirectional_l,
-} = __webpack_require__(/*! ./lib/memory-code-points */ "./node_modules/saslprep/lib/memory-code-points.js");
-
-module.exports = saslprep;
-
-// 2.1.  Mapping
-
-/**
- * non-ASCII space characters [StringPrep, C.1.2] that can be
- * mapped to SPACE (U+0020)
- */
-const mapping2space = non_ASCII_space_characters;
-
-/**
- * the "commonly mapped to nothing" characters [StringPrep, B.1]
- * that can be mapped to nothing.
- */
-const mapping2nothing = commonly_mapped_to_nothing;
-
-// utils
-const getCodePoint = character => character.codePointAt(0);
-const first = x => x[0];
-const last = x => x[x.length - 1];
-
-/**
- * Convert provided string into an array of Unicode Code Points.
- * Based on https://stackoverflow.com/a/21409165/1556249
- * and https://www.npmjs.com/package/code-point-at.
- * @param {string} input
- * @returns {number[]}
- */
-function toCodePoints(input) {
-  const codepoints = [];
-  const size = input.length;
-
-  for (let i = 0; i < size; i += 1) {
-    const before = input.charCodeAt(i);
-
-    if (before >= 0xd800 && before <= 0xdbff && size > i + 1) {
-      const next = input.charCodeAt(i + 1);
-
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        codepoints.push((before - 0xd800) * 0x400 + next - 0xdc00 + 0x10000);
-        i += 1;
-        continue;
-      }
-    }
-
-    codepoints.push(before);
-  }
-
-  return codepoints;
-}
-
-/**
- * SASLprep.
- * @param {string} input
- * @param {Object} opts
- * @param {boolean} opts.allowUnassigned
- * @returns {string}
- */
-function saslprep(input, opts = {}) {
-  if (typeof input !== 'string') {
-    throw new TypeError('Expected string.');
-  }
-
-  if (input.length === 0) {
-    return '';
-  }
-
-  // 1. Map
-  const mapped_input = toCodePoints(input)
-    // 1.1 mapping to space
-    .map(character => (mapping2space.get(character) ? 0x20 : character))
-    // 1.2 mapping to nothing
-    .filter(character => !mapping2nothing.get(character));
-
-  // 2. Normalize
-  const normalized_input = String.fromCodePoint
-    .apply(null, mapped_input)
-    .normalize('NFKC');
-
-  const normalized_map = toCodePoints(normalized_input);
-
-  // 3. Prohibit
-  const hasProhibited = normalized_map.some(character =>
-    prohibited_characters.get(character)
-  );
-
-  if (hasProhibited) {
-    throw new Error(
-      'Prohibited character, see https://tools.ietf.org/html/rfc4013#section-2.3'
-    );
-  }
-
-  // Unassigned Code Points
-  if (opts.allowUnassigned !== true) {
-    const hasUnassigned = normalized_map.some(character =>
-      unassigned_code_points.get(character)
-    );
-
-    if (hasUnassigned) {
-      throw new Error(
-        'Unassigned code point, see https://tools.ietf.org/html/rfc4013#section-2.5'
-      );
-    }
-  }
-
-  // 4. check bidi
-
-  const hasBidiRAL = normalized_map.some(character =>
-    bidirectional_r_al.get(character)
-  );
-
-  const hasBidiL = normalized_map.some(character =>
-    bidirectional_l.get(character)
-  );
-
-  // 4.1 If a string contains any RandALCat character, the string MUST NOT
-  // contain any LCat character.
-  if (hasBidiRAL && hasBidiL) {
-    throw new Error(
-      'String must not contain RandALCat and LCat at the same time,' +
-        ' see https://tools.ietf.org/html/rfc3454#section-6'
-    );
-  }
-
-  /**
-   * 4.2 If a string contains any RandALCat character, a RandALCat
-   * character MUST be the first character of the string, and a
-   * RandALCat character MUST be the last character of the string.
-   */
-
-  const isFirstBidiRAL = bidirectional_r_al.get(
-    getCodePoint(first(normalized_input))
-  );
-  const isLastBidiRAL = bidirectional_r_al.get(
-    getCodePoint(last(normalized_input))
-  );
-
-  if (hasBidiRAL && !(isFirstBidiRAL && isLastBidiRAL)) {
-    throw new Error(
-      'Bidirectional RandALCat character must be the first and the last' +
-        ' character of the string, see https://tools.ietf.org/html/rfc3454#section-6'
-    );
-  }
-
-  return normalized_input;
-}
-
-
-/***/ }),
-
-/***/ "./node_modules/saslprep/lib/memory-code-points.js":
-/*!*********************************************************!*\
-  !*** ./node_modules/saslprep/lib/memory-code-points.js ***!
-  \*********************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/* WEBPACK VAR INJECTION */(function(__dirname) {
-
-const fs = __webpack_require__(/*! fs */ "fs");
-const path = __webpack_require__(/*! path */ "path");
-const bitfield = __webpack_require__(/*! sparse-bitfield */ "./node_modules/sparse-bitfield/index.js");
-
-/* eslint-disable-next-line security/detect-non-literal-fs-filename */
-const memory = fs.readFileSync(path.resolve(__dirname, '../code-points.mem'));
-let offset = 0;
-
-/**
- * Loads each code points sequence from buffer.
- * @returns {bitfield}
- */
-function read() {
-  const size = memory.readUInt32BE(offset);
-  offset += 4;
-
-  const codepoints = memory.slice(offset, offset + size);
-  offset += size;
-
-  return bitfield({ buffer: codepoints });
-}
-
-const unassigned_code_points = read();
-const commonly_mapped_to_nothing = read();
-const non_ASCII_space_characters = read();
-const prohibited_characters = read();
-const bidirectional_r_al = read();
-const bidirectional_l = read();
-
-module.exports = {
-  unassigned_code_points,
-  commonly_mapped_to_nothing,
-  non_ASCII_space_characters,
-  prohibited_characters,
-  bidirectional_r_al,
-  bidirectional_l,
-};
-
-/* WEBPACK VAR INJECTION */}.call(this, "/"))
 
 /***/ }),
 
@@ -53978,436 +47852,6 @@ function coerce (version) {
     '.' + (match[2] || '0') +
     '.' + (match[3] || '0'))
 }
-
-
-/***/ }),
-
-/***/ "./node_modules/sparse-bitfield/index.js":
-/*!***********************************************!*\
-  !*** ./node_modules/sparse-bitfield/index.js ***!
-  \***********************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-var pager = __webpack_require__(/*! memory-pager */ "./node_modules/memory-pager/index.js")
-
-module.exports = Bitfield
-
-function Bitfield (opts) {
-  if (!(this instanceof Bitfield)) return new Bitfield(opts)
-  if (!opts) opts = {}
-  if (Buffer.isBuffer(opts)) opts = {buffer: opts}
-
-  this.pageOffset = opts.pageOffset || 0
-  this.pageSize = opts.pageSize || 1024
-  this.pages = opts.pages || pager(this.pageSize)
-
-  this.byteLength = this.pages.length * this.pageSize
-  this.length = 8 * this.byteLength
-
-  if (!powerOfTwo(this.pageSize)) throw new Error('The page size should be a power of two')
-
-  this._trackUpdates = !!opts.trackUpdates
-  this._pageMask = this.pageSize - 1
-
-  if (opts.buffer) {
-    for (var i = 0; i < opts.buffer.length; i += this.pageSize) {
-      this.pages.set(i / this.pageSize, opts.buffer.slice(i, i + this.pageSize))
-    }
-    this.byteLength = opts.buffer.length
-    this.length = 8 * this.byteLength
-  }
-}
-
-Bitfield.prototype.get = function (i) {
-  var o = i & 7
-  var j = (i - o) / 8
-
-  return !!(this.getByte(j) & (128 >> o))
-}
-
-Bitfield.prototype.getByte = function (i) {
-  var o = i & this._pageMask
-  var j = (i - o) / this.pageSize
-  var page = this.pages.get(j, true)
-
-  return page ? page.buffer[o + this.pageOffset] : 0
-}
-
-Bitfield.prototype.set = function (i, v) {
-  var o = i & 7
-  var j = (i - o) / 8
-  var b = this.getByte(j)
-
-  return this.setByte(j, v ? b | (128 >> o) : b & (255 ^ (128 >> o)))
-}
-
-Bitfield.prototype.toBuffer = function () {
-  var all = alloc(this.pages.length * this.pageSize)
-
-  for (var i = 0; i < this.pages.length; i++) {
-    var next = this.pages.get(i, true)
-    var allOffset = i * this.pageSize
-    if (next) next.buffer.copy(all, allOffset, this.pageOffset, this.pageOffset + this.pageSize)
-  }
-
-  return all
-}
-
-Bitfield.prototype.setByte = function (i, b) {
-  var o = i & this._pageMask
-  var j = (i - o) / this.pageSize
-  var page = this.pages.get(j, false)
-
-  o += this.pageOffset
-
-  if (page.buffer[o] === b) return false
-  page.buffer[o] = b
-
-  if (i >= this.byteLength) {
-    this.byteLength = i + 1
-    this.length = this.byteLength * 8
-  }
-
-  if (this._trackUpdates) this.pages.updated(page)
-
-  return true
-}
-
-function alloc (n) {
-  if (Buffer.alloc) return Buffer.alloc(n)
-  var b = new Buffer(n)
-  b.fill(0)
-  return b
-}
-
-function powerOfTwo (x) {
-  return !(x & (x - 1))
-}
-
-
-/***/ }),
-
-/***/ "./node_modules/string_decoder/lib/string_decoder.js":
-/*!***********************************************************!*\
-  !*** ./node_modules/string_decoder/lib/string_decoder.js ***!
-  \***********************************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-
-/*<replacement>*/
-
-var Buffer = __webpack_require__(/*! safe-buffer */ "./node_modules/safe-buffer/index.js").Buffer;
-/*</replacement>*/
-
-var isEncoding = Buffer.isEncoding || function (encoding) {
-  encoding = '' + encoding;
-  switch (encoding && encoding.toLowerCase()) {
-    case 'hex':case 'utf8':case 'utf-8':case 'ascii':case 'binary':case 'base64':case 'ucs2':case 'ucs-2':case 'utf16le':case 'utf-16le':case 'raw':
-      return true;
-    default:
-      return false;
-  }
-};
-
-function _normalizeEncoding(enc) {
-  if (!enc) return 'utf8';
-  var retried;
-  while (true) {
-    switch (enc) {
-      case 'utf8':
-      case 'utf-8':
-        return 'utf8';
-      case 'ucs2':
-      case 'ucs-2':
-      case 'utf16le':
-      case 'utf-16le':
-        return 'utf16le';
-      case 'latin1':
-      case 'binary':
-        return 'latin1';
-      case 'base64':
-      case 'ascii':
-      case 'hex':
-        return enc;
-      default:
-        if (retried) return; // undefined
-        enc = ('' + enc).toLowerCase();
-        retried = true;
-    }
-  }
-};
-
-// Do not cache `Buffer.isEncoding` when checking encoding names as some
-// modules monkey-patch it to support additional encodings
-function normalizeEncoding(enc) {
-  var nenc = _normalizeEncoding(enc);
-  if (typeof nenc !== 'string' && (Buffer.isEncoding === isEncoding || !isEncoding(enc))) throw new Error('Unknown encoding: ' + enc);
-  return nenc || enc;
-}
-
-// StringDecoder provides an interface for efficiently splitting a series of
-// buffers into a series of JS strings without breaking apart multi-byte
-// characters.
-exports.StringDecoder = StringDecoder;
-function StringDecoder(encoding) {
-  this.encoding = normalizeEncoding(encoding);
-  var nb;
-  switch (this.encoding) {
-    case 'utf16le':
-      this.text = utf16Text;
-      this.end = utf16End;
-      nb = 4;
-      break;
-    case 'utf8':
-      this.fillLast = utf8FillLast;
-      nb = 4;
-      break;
-    case 'base64':
-      this.text = base64Text;
-      this.end = base64End;
-      nb = 3;
-      break;
-    default:
-      this.write = simpleWrite;
-      this.end = simpleEnd;
-      return;
-  }
-  this.lastNeed = 0;
-  this.lastTotal = 0;
-  this.lastChar = Buffer.allocUnsafe(nb);
-}
-
-StringDecoder.prototype.write = function (buf) {
-  if (buf.length === 0) return '';
-  var r;
-  var i;
-  if (this.lastNeed) {
-    r = this.fillLast(buf);
-    if (r === undefined) return '';
-    i = this.lastNeed;
-    this.lastNeed = 0;
-  } else {
-    i = 0;
-  }
-  if (i < buf.length) return r ? r + this.text(buf, i) : this.text(buf, i);
-  return r || '';
-};
-
-StringDecoder.prototype.end = utf8End;
-
-// Returns only complete characters in a Buffer
-StringDecoder.prototype.text = utf8Text;
-
-// Attempts to complete a partial non-UTF-8 character using bytes from a Buffer
-StringDecoder.prototype.fillLast = function (buf) {
-  if (this.lastNeed <= buf.length) {
-    buf.copy(this.lastChar, this.lastTotal - this.lastNeed, 0, this.lastNeed);
-    return this.lastChar.toString(this.encoding, 0, this.lastTotal);
-  }
-  buf.copy(this.lastChar, this.lastTotal - this.lastNeed, 0, buf.length);
-  this.lastNeed -= buf.length;
-};
-
-// Checks the type of a UTF-8 byte, whether it's ASCII, a leading byte, or a
-// continuation byte. If an invalid byte is detected, -2 is returned.
-function utf8CheckByte(byte) {
-  if (byte <= 0x7F) return 0;else if (byte >> 5 === 0x06) return 2;else if (byte >> 4 === 0x0E) return 3;else if (byte >> 3 === 0x1E) return 4;
-  return byte >> 6 === 0x02 ? -1 : -2;
-}
-
-// Checks at most 3 bytes at the end of a Buffer in order to detect an
-// incomplete multi-byte UTF-8 character. The total number of bytes (2, 3, or 4)
-// needed to complete the UTF-8 character (if applicable) are returned.
-function utf8CheckIncomplete(self, buf, i) {
-  var j = buf.length - 1;
-  if (j < i) return 0;
-  var nb = utf8CheckByte(buf[j]);
-  if (nb >= 0) {
-    if (nb > 0) self.lastNeed = nb - 1;
-    return nb;
-  }
-  if (--j < i || nb === -2) return 0;
-  nb = utf8CheckByte(buf[j]);
-  if (nb >= 0) {
-    if (nb > 0) self.lastNeed = nb - 2;
-    return nb;
-  }
-  if (--j < i || nb === -2) return 0;
-  nb = utf8CheckByte(buf[j]);
-  if (nb >= 0) {
-    if (nb > 0) {
-      if (nb === 2) nb = 0;else self.lastNeed = nb - 3;
-    }
-    return nb;
-  }
-  return 0;
-}
-
-// Validates as many continuation bytes for a multi-byte UTF-8 character as
-// needed or are available. If we see a non-continuation byte where we expect
-// one, we "replace" the validated continuation bytes we've seen so far with
-// a single UTF-8 replacement character ('\ufffd'), to match v8's UTF-8 decoding
-// behavior. The continuation byte check is included three times in the case
-// where all of the continuation bytes for a character exist in the same buffer.
-// It is also done this way as a slight performance increase instead of using a
-// loop.
-function utf8CheckExtraBytes(self, buf, p) {
-  if ((buf[0] & 0xC0) !== 0x80) {
-    self.lastNeed = 0;
-    return '\ufffd';
-  }
-  if (self.lastNeed > 1 && buf.length > 1) {
-    if ((buf[1] & 0xC0) !== 0x80) {
-      self.lastNeed = 1;
-      return '\ufffd';
-    }
-    if (self.lastNeed > 2 && buf.length > 2) {
-      if ((buf[2] & 0xC0) !== 0x80) {
-        self.lastNeed = 2;
-        return '\ufffd';
-      }
-    }
-  }
-}
-
-// Attempts to complete a multi-byte UTF-8 character using bytes from a Buffer.
-function utf8FillLast(buf) {
-  var p = this.lastTotal - this.lastNeed;
-  var r = utf8CheckExtraBytes(this, buf, p);
-  if (r !== undefined) return r;
-  if (this.lastNeed <= buf.length) {
-    buf.copy(this.lastChar, p, 0, this.lastNeed);
-    return this.lastChar.toString(this.encoding, 0, this.lastTotal);
-  }
-  buf.copy(this.lastChar, p, 0, buf.length);
-  this.lastNeed -= buf.length;
-}
-
-// Returns all complete UTF-8 characters in a Buffer. If the Buffer ended on a
-// partial character, the character's bytes are buffered until the required
-// number of bytes are available.
-function utf8Text(buf, i) {
-  var total = utf8CheckIncomplete(this, buf, i);
-  if (!this.lastNeed) return buf.toString('utf8', i);
-  this.lastTotal = total;
-  var end = buf.length - (total - this.lastNeed);
-  buf.copy(this.lastChar, 0, end);
-  return buf.toString('utf8', i, end);
-}
-
-// For UTF-8, a replacement character is added when ending on a partial
-// character.
-function utf8End(buf) {
-  var r = buf && buf.length ? this.write(buf) : '';
-  if (this.lastNeed) return r + '\ufffd';
-  return r;
-}
-
-// UTF-16LE typically needs two bytes per character, but even if we have an even
-// number of bytes available, we need to check if we end on a leading/high
-// surrogate. In that case, we need to wait for the next two bytes in order to
-// decode the last character properly.
-function utf16Text(buf, i) {
-  if ((buf.length - i) % 2 === 0) {
-    var r = buf.toString('utf16le', i);
-    if (r) {
-      var c = r.charCodeAt(r.length - 1);
-      if (c >= 0xD800 && c <= 0xDBFF) {
-        this.lastNeed = 2;
-        this.lastTotal = 4;
-        this.lastChar[0] = buf[buf.length - 2];
-        this.lastChar[1] = buf[buf.length - 1];
-        return r.slice(0, -1);
-      }
-    }
-    return r;
-  }
-  this.lastNeed = 1;
-  this.lastTotal = 2;
-  this.lastChar[0] = buf[buf.length - 1];
-  return buf.toString('utf16le', i, buf.length - 1);
-}
-
-// For UTF-16LE we do not explicitly append special replacement characters if we
-// end on a partial character, we simply let v8 handle that.
-function utf16End(buf) {
-  var r = buf && buf.length ? this.write(buf) : '';
-  if (this.lastNeed) {
-    var end = this.lastTotal - this.lastNeed;
-    return r + this.lastChar.toString('utf16le', 0, end);
-  }
-  return r;
-}
-
-function base64Text(buf, i) {
-  var n = (buf.length - i) % 3;
-  if (n === 0) return buf.toString('base64', i);
-  this.lastNeed = 3 - n;
-  this.lastTotal = 3;
-  if (n === 1) {
-    this.lastChar[0] = buf[buf.length - 1];
-  } else {
-    this.lastChar[0] = buf[buf.length - 2];
-    this.lastChar[1] = buf[buf.length - 1];
-  }
-  return buf.toString('base64', i, buf.length - n);
-}
-
-function base64End(buf) {
-  var r = buf && buf.length ? this.write(buf) : '';
-  if (this.lastNeed) return r + this.lastChar.toString('base64', 0, 3 - this.lastNeed);
-  return r;
-}
-
-// Pass bytes on through for single-byte encodings (e.g. ascii, latin1, hex)
-function simpleWrite(buf) {
-  return buf.toString(this.encoding);
-}
-
-function simpleEnd(buf) {
-  return buf && buf.length ? this.write(buf) : '';
-}
-
-/***/ }),
-
-/***/ "./node_modules/util-deprecate/node.js":
-/*!*********************************************!*\
-  !*** ./node_modules/util-deprecate/node.js ***!
-  \*********************************************/
-/*! no static exports found */
-/***/ (function(module, exports, __webpack_require__) {
-
-
-/**
- * For Node.js, simply re-export the core `util.deprecate` function.
- */
-
-module.exports = __webpack_require__(/*! util */ "util").deprecate;
 
 
 /***/ }),

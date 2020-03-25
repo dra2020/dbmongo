@@ -661,6 +661,7 @@ export class MongoQuery extends DB.DBQuery
           this.cursor.close((err: MDB.MongoError) => {
               this.cursor = null;
               this.setState(this.bError ? FSM.FSM_ERROR : FSM.FSM_DONE);
+              this.fsmResult.setState(this.state);
             });
         }
       }
